@@ -68,6 +68,7 @@ button.secondary { background: #334155; color: var(--text); padding: 6px 10px; f
 def _page_shell(title: str, active: str, body: str) -> str:
     nav_dash = 'class="active"' if active == "dashboard" else ""
     nav_cfg = 'class="active"' if active == "config" else ""
+    nav_man = 'class="active"' if active == "manual" else ""
     return f"""<!doctype html>
 <html lang="en-GB">
 <head>
@@ -82,6 +83,7 @@ def _page_shell(title: str, active: str, body: str) -> str:
   <nav>
     <a href="/" {nav_dash}>Dashboard</a>
     <a href="/config" {nav_cfg}>Configuration</a>
+    <a href="/manual" {nav_man}>User Manual</a>
   </nav>
 </header>
 <main>{body}</main>
@@ -546,5 +548,92 @@ def create_dashboard_app(config_path: Path) -> FastAPI:
             return RedirectResponse(url="/config?saved=1", status_code=303)
         except Exception as exc:
             return RedirectResponse(url=f"/config?err={html.escape(str(exc))}", status_code=303)
+
+    @app.get("/manual", response_class=HTMLResponse)
+    async def user_manual() -> str:
+        body = """
+        <div class="card">
+          <h2>Aegis Harness User Manual</h2>
+          <p>Aegis Harness sits between developers, AI coding models, and Git. Every model call, file change, and commit is policy-checked, recorded in a tamper-evident audit chain, and streamed as telemetry to Aegis.</p>
+        </div>
+
+        <div class="card">
+          <h2>1. Getting Started &amp; Local-First Git</h2>
+          <p>Initialise Harness inside any project directory. By default, Harness creates a local Git repository so you can iterate privately and publish to GitHub only when ready.</p>
+          <pre><code>export AEGIS_TELEMETRY_TOKEN="aegis_your_token_here"
+harness init --name my-project --asset-code HARNESS-001</code></pre>
+          <p>To publish a mature project to GitHub later, open <a href="/config">Configuration</a>, uncheck <strong>Local Git Only</strong>, set your <strong>Repository Remote URL</strong>, and push:</p>
+          <pre><code>git remote add origin https://github.com/ianloe/aegis-harness.git
+git push -u origin main</code></pre>
+        </div>
+
+        <div class="card">
+          <h2>2. Model Providers &amp; Switching Models</h2>
+          <p>Harness supports Anthropic, OpenAI, Google Gemini, <strong>Agnes AI</strong> (<code>agnes-coder</code>), and local OpenAI-compatible servers such as Ollama and vLLM. API keys are read from environment variables and are never written to disk.</p>
+          <table>
+            <thead><tr><th>Provider</th><th>Example Model</th><th>API Key Env Var</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>Anthropic</td><td><code>claude-3-7-sonnet</code></td><td><code>ANTHROPIC_API_KEY</code></td><td>Cloud reasoning and coding</td></tr>
+              <tr><td>OpenAI</td><td><code>gpt-4o</code></td><td><code>OPENAI_API_KEY</code></td><td>General coding</td></tr>
+              <tr><td>Google Gemini</td><td><code>gemini-2.5-pro</code></td><td><code>GEMINI_API_KEY</code></td><td>Code review and analysis</td></tr>
+              <tr><td>Agnes AI</td><td><code>agnes-coder</code></td><td><code>AGNES_API_KEY</code></td><td>OpenAI-compatible coding endpoint</td></tr>
+              <tr><td>Ollama (Local)</td><td><code>qwen2.5-coder:14b</code></td><td>None</td><td>Required for <code>restricted</code> repositories</td></tr>
+            </tbody>
+          </table>
+          <p>Use <code>harness model list</code> to view permitted models and <code>harness model use &lt;name&gt;</code> to switch models without changing your workflow.</p>
+        </div>
+
+        <div class="card">
+          <h2>3. Risk Tiers &amp; Governance Policies</h2>
+          <p>All policy rules are configured in <a href="/config">Configuration</a> (backed by <code>.harness/config.yaml</code>) and organised into three risk tiers:</p>
+          <ul>
+            <li><strong>Low Risk</strong>: Automated security and test checks only (0 human approvals by default).</li>
+            <li><strong>Medium Risk</strong>: Automated checks plus 1 distinct human approver (must differ from the requester).</li>
+            <li><strong>High Risk</strong>: Automated checks plus 2 distinct human approvers and Governance Office sign-off.</li>
+          </ul>
+          <p>Changes touching sensitive paths (such as <code>infra/**</code>, <code>.github/workflows/**</code>, or <code>.env*</code>) or exceeding the tier diff-line limit automatically require elevated approval.</p>
+        </div>
+
+        <div class="card">
+          <h2>4. Daily Governed Coding Workflow</h2>
+          <ol>
+            <li><strong>Start a task</strong>: <code>harness task start "Implement login rate limit" --risk medium</code> (creates an isolated <code>agent/&lt;task-id&gt;</code> branch).</li>
+            <li><strong>Run check-in gates</strong>: <code>harness check --task &lt;task-id&gt;</code> (runs secret scanning, SAST, dependency/licence checks, unit tests, and diff/path checks).</li>
+            <li><strong>Obtain approval</strong>: <code>harness approve &lt;task-id&gt; --approver reviewer@company.com</code> (or approve directly on the <a href="/">Dashboard</a>).</li>
+            <li><strong>Create a signed commit</strong>: <code>harness commit -m "Add rate limit" --task &lt;task-id&gt; --approver reviewer@company.com</code> (adds AI provenance trailers and SSH/GPG signature).</li>
+            <li><strong>Generate PR summary</strong>: <code>harness pr --task &lt;task-id&gt; --why "Mitigate brute-force logins"</code>.</li>
+          </ol>
+        </div>
+
+        <div class="card">
+          <h2>5. Audit Verification, Sandbox &amp; Kill Switch</h2>
+          <ul>
+            <li><strong>Verify Audit Chain</strong>: Run <code>harness audit verify</code> at any time to confirm no past log entry has been altered.</li>
+            <li><strong>Daily Signed Checkpoint</strong>: Run <code>harness audit checkpoint</code> to generate an HMAC-SHA256 signed daily digest.</li>
+            <li><strong>Emergency Kill Switch</strong>: Run <code>harness killswitch --reason "Suspected prompt injection"</code> to halt all active agent processes within 5 seconds, revoke per-task tokens, and notify Aegis.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>6. CLI Command Reference</h2>
+          <table>
+            <thead><tr><th>Command</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>harness init</code></td><td>Initialise <code>.harness/config.yaml</code>, SQLite state, audit chain, and local Git.</td></tr>
+              <tr><td><code>harness task start &lt;title&gt;</code></td><td>Start a new governed task and session with a risk tier.</td></tr>
+              <tr><td><code>harness model list</code> / <code>use &lt;name&gt;</code></td><td>List permitted models or switch the active model.</td></tr>
+              <tr><td><code>harness check</code></td><td>Run secret, SAST, dependency/licence, test, and diff gates.</td></tr>
+              <tr><td><code>harness approve &lt;task-id&gt;</code></td><td>Record a distinct second-person human approval.</td></tr>
+              <tr><td><code>harness commit -m ...</code></td><td>Create a signed commit with AI provenance trailers.</td></tr>
+              <tr><td><code>harness pr --task &lt;id&gt;</code></td><td>Generate a Markdown pull request governance summary.</td></tr>
+              <tr><td><code>harness audit verify</code> / <code>checkpoint</code></td><td>Verify hash-chain integrity or create a signed daily checkpoint.</td></tr>
+              <tr><td><code>harness killswitch</code></td><td>Immediately halt active agent sessions and revoke task tokens.</td></tr>
+              <tr><td><code>harness report</code></td><td>Display governance, cost, and check-gate metrics in the terminal.</td></tr>
+              <tr><td><code>harness dashboard</code></td><td>Start this local web dashboard, configuration UI, and user manual.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        """
+        return _page_shell("User Manual", "manual", body)
 
     return app

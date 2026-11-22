@@ -130,3 +130,13 @@ def test_cli_report_outputs_metrics(tmp_path: Path, monkeypatch) -> None:
     assert res.exit_code == 0
     assert "Governance Report" in res.stdout
     assert "VERIFIED" in res.stdout
+
+
+def test_user_manual_page_renders_guides(tmp_path: Path) -> None:
+    cfg_path, _cfg, _ = init_workspace(root=tmp_path, project_name="manual-demo", asset_code="AI-001")
+    client = TestClient(create_dashboard_app(cfg_path))
+    resp = client.get("/manual")
+    assert resp.status_code == 200
+    assert "Aegis Harness User Manual" in resp.text
+    assert "Agnes AI" in resp.text
+    assert "CLI Command Reference" in resp.text

@@ -16,3 +16,6 @@ services:
     volumes:
       - ./:/workspace
     working_dir: /workspace
+    command: >
+      sh -c "[ -f .harness/config.yaml ] || harness init --name aegis-harness --asset-code HARNESS-001;
+      harness dashboard --host 0.0.0.0 --port 8787"
