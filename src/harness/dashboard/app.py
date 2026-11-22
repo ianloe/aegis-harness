@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from harness.audit.chain import AuditChain, utc_now_iso
 from harness.audit.store import StateStore
@@ -105,6 +105,12 @@ def _page_shell(title: str, active: str, body: str, *, show_nav: bool = True) ->
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#020617" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="icon" type="image/png" href="/assets/icon-192.png" />
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
 <title>{html.escape(title)} - Aegis Harness</title>
 <style>{BASE_CSS}</style>
 <script>
@@ -144,6 +150,9 @@ def _page_shell(title: str, active: str, body: str, *, show_nav: bool = True) ->
     sync();
   }});
   sync();
+  if ('serviceWorker' in navigator) {{
+    navigator.serviceWorker.register('/sw.js').catch(function() {{}});
+  }}
 }})();
 </script>
 </body>
@@ -258,7 +267,16 @@ def create_dashboard_app(
             return await call_next(request)
 
         path = request.url.path
-        if path in ("/login", "/logout", "/assets/logo.png"):
+        if path in (
+            "/login",
+            "/logout",
+            "/manifest.webmanifest",
+            "/sw.js",
+            "/assets/logo.png",
+            "/assets/icon-192.png",
+            "/assets/icon-512.png",
+            "/assets/apple-touch-icon.png",
+        ):
             return await call_next(request)
 
         expected_token = _resolve_dashboard_token(cfg, root, override_token=auth_token)
@@ -345,6 +363,71 @@ def create_dashboard_app(
     async def logo_asset() -> FileResponse:
         logo_path = Path(__file__).resolve().parent / "static" / "aegis-harness-logo.png"
         return FileResponse(logo_path, media_type="image/png")
+
+    @app.get("/assets/icon-192.png")
+    async def icon_192_asset() -> FileResponse:
+        return FileResponse(Path(__file__).resolve().parent / "static" / "icon-192.png", media_type="image/png")
+
+    @app.get("/assets/icon-512.png")
+    async def icon_512_asset() -> FileResponse:
+        return FileResponse(Path(__file__).resolve().parent / "static" / "icon-512.png", media_type="image/png")
+
+    @app.get("/assets/apple-touch-icon.png")
+    async def apple_icon_asset() -> FileResponse:
+        return FileResponse(Path(__file__).resolve().parent / "static" / "apple-touch-icon.png", media_type="image/png")
+
+    @app.get("/manifest.webmanifest")
+    async def pwa_manifest() -> JSONResponse:
+        return JSONResponse(
+            {
+                "name": "Aegis Harness",
+                "short_name": "Harness",
+                "description": "Security-first and governance-first wrapper for AI-assisted coding.",
+                "start_url": "/",
+                "scope": "/",
+                "display": "standalone",
+                "background_color": "#0f172a",
+                "theme_color": "#020617",
+                "icons": [
+                    {"src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+                    {"src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+                ],
+            },
+            media_type="application/manifest+json",
+        )
+
+    @app.get("/sw.js")
+    async def pwa_service_worker() -> Response:
+        sw_code = """const CACHE_NAME = 'aegis-harness-v1';
+const STATIC_ASSETS = [
+  '/manifest.webmanifest',
+  '/assets/logo.png',
+  '/assets/icon-192.png',
+  '/assets/icon-512.png',
+  '/assets/apple-touch-icon.png'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) {
+    return;
+  }
+  event.respondWith(
+    fetch(event.request).catch(() => caches.match(event.request))
+  );
+});
+"""
+        return Response(content=sw_code, media_type="application/javascript")
 
     @app.get("/api/metrics")
     async def api_metrics() -> JSONResponse:

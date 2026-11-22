@@ -235,9 +235,18 @@ def test_dashboard_authentication_blocks_unauthenticated_and_allows_login(tmp_pa
     secret_token = "super-secret-dashboard-token"
     client = TestClient(create_dashboard_app(cfg_path, auth_enabled=True, auth_token=secret_token))
 
-    # Public routes
+    # Public routes (auth + PWA metadata & icons)
     assert client.get("/login").status_code == 200
     assert client.get("/assets/logo.png").status_code == 200
+    assert client.get("/assets/icon-192.png").status_code == 200
+    assert client.get("/assets/icon-512.png").status_code == 200
+    assert client.get("/assets/apple-touch-icon.png").status_code == 200
+    manifest_resp = client.get("/manifest.webmanifest")
+    assert manifest_resp.status_code == 200
+    assert manifest_resp.json()["display"] == "standalone"
+    sw_resp = client.get("/sw.js")
+    assert sw_resp.status_code == 200
+    assert "aegis-harness-v1" in sw_resp.text
 
     # Protected HTML routes redirect to /login
     for path in ("/", "/studio", "/config", "/manual"):
