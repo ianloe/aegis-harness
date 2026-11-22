@@ -12,6 +12,7 @@ build/
 .harness/audit.jsonl
 .harness/checkpoints/
 .harness/keys/
+.harness/bodies/
 .env
 *.key
 *.pem

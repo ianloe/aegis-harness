@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "Security-first and governance-first wrapper for AI-assisted coding, integrated with Aegis."
 requires-python = ">=3.11"
 dependencies = [
+    "cryptography>=44.0",
+    "httpx>=0.28",
     "pydantic>=2.10",
     "pyyaml>=6.0",
     "typer>=0.15",

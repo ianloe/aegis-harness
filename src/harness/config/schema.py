@@ -156,6 +156,7 @@ class GatewayConfig(BaseModel):
             "claude-3-7-sonnet",
             "gpt-4o",
             "gemini-2.5-pro",
+            "agnes-coder",
             "qwen2.5-coder:14b",
         ],
         description="Project-wide allow-list of approved models.",
@@ -202,6 +203,14 @@ class GatewayConfig(BaseModel):
                 kind="gemini",
                 api_key_env_var="GEMINI_API_KEY",
                 models=["gemini-2.5-pro"],
+                is_local=False,
+            ),
+            ProviderConfig(
+                name="agnes",
+                kind="openai_compatible",
+                base_url="https://api.agnes.ai/v1",
+                api_key_env_var="AGNES_API_KEY",
+                models=["agnes-coder"],
                 is_local=False,
             ),
             ProviderConfig(
