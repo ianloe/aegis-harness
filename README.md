@@ -55,6 +55,8 @@
 
 ## Quick Start
 
+For a full beginner's walkthrough, see [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
