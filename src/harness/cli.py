@@ -14,6 +14,7 @@ from harness.audit.chain import AuditChain, utc_now_iso
 from harness.audit.store import StateStore
 from harness.config.loader import find_config_path, init_workspace, load_config
 from harness.config.schema import RiskTier
+from harness.gitops import GateRunner, GitGovernanceError, GitWorkflow
 from harness.policy import PolicyEngine, PolicyOutcome
 
 app = typer.Typer(
@@ -209,21 +210,107 @@ def cmd_audit_checkpoint() -> None:
 
 
 @app.command("check")
-def cmd_check() -> None:
-    """Run pre-commit security, SAST, dependency, coverage, and diff-size checks (Phase 4)."""
-    console.print("[yellow]Phase 4 pending:[/yellow] security and check-in gates will run here.")
+def cmd_check(
+    task_id: str = typer.Option("no-task", "--task", "-t", help="Task ID for audit attribution."),
+    run_pytest: bool = typer.Option(True, "--run-tests/--skip-tests", help="Run pytest unit tests."),
+) -> None:
+    """Run pre-commit security, SAST, dependency, coverage, and diff-size checks."""
+    cfg, root, audit, _store = _open_audit_and_store()
+    wf = GitWorkflow(cfg, audit, root)
+    runner = GateRunner(cfg, audit, root)
+    report = runner.run_all(
+        changed_paths=wf.changed_files(),
+        diff_lines=wf.diff_line_count(),
+        task_id=task_id,
+        run_pytest=run_pytest,
+    )
+    for res in report.results:
+        status = "[green]PASS[/green]" if res.passed else "[red]FAIL[/red]"
+        console.print(f"{status} {res.name} ({res.scanner}): {res.summary}")
+    if not report.passed:
+        raise typer.Exit(code=1)
 
 
 @app.command("commit")
-def cmd_commit(message: str = typer.Option(..., "--message", "-m", help="Commit message.")) -> None:
-    """Create a signed commit with AI provenance trailers after gates pass (Phase 4)."""
-    console.print(f"[yellow]Phase 4 pending:[/yellow] signed commit for '{message}' will run here.")
+def cmd_commit(
+    message: str = typer.Option(..., "--message", "-m", help="Commit message."),
+    task_id: str = typer.Option(..., "--task", "-t", help="Task ID for provenance trailers."),
+    approver: str = typer.Option("none", "--approver", help="Approver identifier if approved."),
+    run_pytest: bool = typer.Option(True, "--run-tests/--skip-tests", help="Run pytest during gates."),
+) -> None:
+    """Create a signed commit with AI provenance trailers after gates pass."""
+    cfg, root, audit, store = _open_audit_and_store()
+    task = store.get_task(task_id)
+    model = (task.get("active_model") if task else None) or cfg.gateway.default_model
+    provider = next((p.name for p in cfg.gateway.providers if model in p.models), "unknown")
+
+    wf = GitWorkflow(cfg, audit, root)
+    runner = GateRunner(cfg, audit, root)
+    report = runner.run_all(
+        changed_paths=wf.changed_files(),
+        diff_lines=wf.diff_line_count(),
+        task_id=task_id,
+        run_pytest=run_pytest,
+    )
+    try:
+        sha = wf.commit(
+            message=message,
+            task_id=task_id,
+            model=model,
+            provider=provider,
+            approver=approver,
+            gate_report=report,
+        )
+    except GitGovernanceError as exc:
+        console.print(f"[red]Commit blocked:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green]Committed[/green] {sha[:12]} on {wf.current_branch()}")
 
 
 @app.command("pr")
-def cmd_pr() -> None:
-    """Generate a governance summary and open a pull request (Phase 4)."""
-    console.print("[yellow]Phase 4 pending:[/yellow] PR generation will run here.")
+def cmd_pr(
+    task_id: str = typer.Option(..., "--task", "-t", help="Task ID for the pull request."),
+    why: str = typer.Option("Governed AI-assisted change.", "--why", help="Reason for change."),
+) -> None:
+    """Generate a governance summary and open or stage a pull request."""
+    cfg, root, audit, store = _open_audit_and_store()
+    task = store.get_task(task_id)
+    if not task:
+        console.print(f"[red]Task '{task_id}' not found.[/red]")
+        raise typer.Exit(code=1)
+
+    wf = GitWorkflow(cfg, audit, root)
+    runner = GateRunner(cfg, audit, root)
+    report = runner.run_all(
+        changed_paths=wf.changed_files(),
+        diff_lines=wf.diff_line_count(),
+        risk_tier=RiskTier(task["risk_tier"]),
+        task_id=task_id,
+        run_pytest=False,
+    )
+    summary = wf.generate_pr_summary(
+        task_id=task_id,
+        title=task["title"],
+        why=why,
+        model=task["active_model"] or cfg.gateway.default_model,
+        risk_tier=task["risk_tier"],
+        changed_files=wf.changed_files(),
+        gate_report=report,
+    )
+    out_file = root / ".harness" / f"pr-{task_id}.md"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text(summary, encoding="utf-8")
+    audit.append(
+        event_type="pr_opened",
+        actor="human:cli",
+        task_id=task_id,
+        repository=cfg.project.name,
+        branch=task["branch"],
+        risk_tier=task["risk_tier"],
+        policy_version=cfg.policy.version,
+        details={"summary_path": str(out_file), "local_git_only": cfg.project.local_git_only},
+    )
+    console.print(f"[green]PR summary generated[/green] at {out_file}")
 
 
 @app.command("approve")

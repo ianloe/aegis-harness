@@ -1,0 +1,35 @@
+name: Harness Check-in Gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ["agent/**"]
+
+jobs:
+  harness-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Harness
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify audit hash chain
+        run: |
+          if [ -f .harness/audit.jsonl ]; then
+            harness audit verify
+          fi
+
+      - name: Run Harness check-in gates
+        run: harness check --run-tests
