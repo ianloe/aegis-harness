@@ -192,3 +192,64 @@ class StateStore:
                 (task_id,),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def enqueue_telemetry(
+        self,
+        *,
+        event_id: str,
+        endpoint: str,
+        payload_json: str,
+        created_at: str,
+    ) -> bool:
+        """Insert a telemetry item idempotently. Returns False if event_id already exists."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO telemetry_queue (event_id, endpoint, payload_json, status, attempts, created_at)
+                VALUES (?, ?, ?, 'pending', 0, ?)
+                """,
+                (event_id, endpoint, payload_json, created_at),
+            )
+            return cur.rowcount > 0
+
+    def pending_telemetry(self, limit: int = 25) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM telemetry_queue
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def mark_telemetry_delivered(self, event_id: str, delivered_at: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE telemetry_queue
+                SET status = 'delivered', attempts = attempts + 1, delivered_at = ?, last_error = NULL
+                WHERE event_id = ?
+                """,
+                (delivered_at, event_id),
+            )
+
+    def mark_telemetry_failed(self, event_id: str, error: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE telemetry_queue
+                SET attempts = attempts + 1, last_error = ?
+                WHERE event_id = ?
+                """,
+                (error[:500], event_id),
+            )
+
+    def telemetry_queue_counts(self) -> Dict[str, int]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) AS cnt FROM telemetry_queue GROUP BY status"
+            ).fetchall()
+            return {r["status"]: int(r["cnt"]) for r in rows}

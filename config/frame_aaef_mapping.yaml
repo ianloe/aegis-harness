@@ -1,0 +1,63 @@
+# Editable mapping from Aegis Harness events to Aegis FRAME criteria and AAEF dimensions.
+# FRAME codes match Aegis prisma/seed-data/frame-criteria.json.
+# AAEF dimensions match Aegis AaefDimension enum.
+
+session_start:
+  frame_controls: ["FOC-01", "ROL-02"]
+  aaef_dimensions: ["BOUNDARY_ADHERENCE"]
+
+model_call:
+  frame_controls: ["MET-01", "MET-03", "AUT-02"]
+  aaef_dimensions: ["TASK_COMPETENCE", "BOUNDARY_ADHERENCE"]
+
+policy_decision:
+  frame_controls: ["AUT-01", "AUT-02"]
+  aaef_dimensions: ["BOUNDARY_ADHERENCE", "JUDGEMENT_QUALITY"]
+
+tool_use:
+  frame_controls: ["AUT-02"]
+  aaef_dimensions: ["BOUNDARY_ADHERENCE"]
+
+file_change:
+  frame_controls: ["AUT-02", "MET-01"]
+  aaef_dimensions: ["TASK_COMPETENCE"]
+
+check_pass:
+  frame_controls: ["MET-02", "EVA-02"]
+  aaef_dimensions: ["TASK_COMPETENCE", "JUDGEMENT_QUALITY"]
+
+check_fail:
+  frame_controls: ["MET-02", "EVA-02", "ROL-03"]
+  aaef_dimensions: ["BOUNDARY_ADHERENCE", "JUDGEMENT_QUALITY"]
+
+approval_requested:
+  frame_controls: ["ROL-02", "AUT-01"]
+  aaef_dimensions: ["COLLABORATION_EFFECTIVENESS"]
+
+approval_granted:
+  frame_controls: ["ROL-02", "AUT-03"]
+  aaef_dimensions: ["COLLABORATION_EFFECTIVENESS"]
+
+commit:
+  frame_controls: ["EVA-02", "MET-01"]
+  aaef_dimensions: ["TASK_COMPETENCE"]
+
+pr_opened:
+  frame_controls: ["ROL-02", "EVA-01"]
+  aaef_dimensions: ["COLLABORATION_EFFECTIVENESS"]
+
+pr_merged:
+  frame_controls: ["EVA-01", "MET-01"]
+  aaef_dimensions: ["IMPROVEMENT_TRAJECTORY"]
+
+override:
+  frame_controls: ["ROL-02", "AUT-03"]
+  aaef_dimensions: ["JUDGEMENT_QUALITY", "COLLABORATION_EFFECTIVENESS"]
+
+kill_switch:
+  frame_controls: ["AUT-02", "ROL-03"]
+  aaef_dimensions: ["BOUNDARY_ADHERENCE"]
+
+incident:
+  frame_controls: ["ROL-03", "EVA-02"]
+  aaef_dimensions: ["BOUNDARY_ADHERENCE", "IMPROVEMENT_TRAJECTORY"]

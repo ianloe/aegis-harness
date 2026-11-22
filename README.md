@@ -26,6 +26,13 @@
 - **Check-in Security Gates** (`src/harness/gitops/gates.py`): Runs secret scanning (`gitleaks` or built-in scanner), SAST (`semgrep` or built-in Python AST scanner), dependency/licence allow-list checks (`osv-scanner` + SPDX check), unit test & coverage threshold checks, and diff/path policy checks.
 - **PR Summaries & Branch Protection**: Generates Markdown PR summaries (`harness pr`) and provides GitHub/GitLab branch protection guidance (`docs/BRANCH_PROTECTION.md`, `scripts/setup_github_branch_protection.sh`, `docs/ci/github-harness-gates.yml`).
 
+### Phase 5: Telemetry & Mock Aegis Server
+- **Pydantic & OpenTelemetry Standard** (`src/harness/telemetry/schema.py`, `src/harness/telemetry/exporter.py`): Emits `HarnessEvent` records as OpenTelemetry OTLP spans (`/api/telemetry/pydantic`), Aegis ingestion events (`/api/telemetry/ingest`), and MCP/A2A protocol events (`/api/telemetry/mcp-a2a`), with `Authorization: Bearer aegis_...` authentication.
+- **Offline Queue & Idempotent Retry**: Queues events in SQLite (`telemetry_queue`) with idempotent `event_id` keys and exponential backoff so no events are lost or duplicated when Aegis is unreachable.
+- **Editable FRAME & AAEF Mapping** (`config/frame_aaef_mapping.yaml`): Links every Harness event type to Aegis `FRAME` criteria and `AAEF` dimensions.
+- **Governance Metrics** (`src/harness/telemetry/metrics.py`): Computes cost per task, tokens per task, check failure rate, human override rate, time to merge, AI-authored line percentage, and policy denials by type.
+- **Mock Aegis Server** (`src/harness/telemetry/mock_aegis.py`): FastAPI mock server validated against Aegis's Zod contracts for local and CI testing.
+
 ## Quick Start
 
 ```bash
