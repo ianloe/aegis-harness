@@ -429,6 +429,19 @@ class DashboardConfig(BaseModel):
         le=65535,
         description="TCP port for the local web dashboard and configuration UI.",
     )
+    auth_enabled: bool = Field(
+        default=True,
+        description="Require token authentication before accessing the dashboard, Coding Studio, and configuration UI.",
+    )
+    auth_token_env_var: str = Field(
+        default="HARNESS_DASHBOARD_TOKEN",
+        description="Environment variable holding the dashboard access token. Auto-generated in .harness/keys/dashboard.token if unset.",
+    )
+    session_ttl_minutes: int = Field(
+        default=480,
+        ge=5,
+        description="Lifetime in minutes for signed browser session cookies.",
+    )
 
 
 class HarnessConfig(BaseModel):

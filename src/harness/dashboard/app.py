@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import html
+import os
+import secrets
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -78,11 +83,23 @@ button.secondary { background: var(--border); color: var(--text); padding: 6px 1
 """
 
 
-def _page_shell(title: str, active: str, body: str) -> str:
+def _page_shell(title: str, active: str, body: str, *, show_nav: bool = True) -> str:
     nav_dash = 'class="active"' if active == "dashboard" else ""
     nav_studio = 'class="active"' if active == "studio" else ""
     nav_cfg = 'class="active"' if active == "config" else ""
     nav_man = 'class="active"' if active == "manual" else ""
+    nav_links = (
+        f"""
+    <a href="/" {nav_dash}>Dashboard</a>
+    <a href="/studio" {nav_studio}>Coding Studio</a>
+    <a href="/config" {nav_cfg}>Configuration</a>
+    <a href="/manual" {nav_man}>User Manual</a>
+    <form method="post" action="/logout" style="margin:0;display:inline;">
+      <button type="submit" class="secondary">Sign Out</button>
+    </form>"""
+        if show_nav
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en-GB">
 <head>
@@ -103,10 +120,7 @@ def _page_shell(title: str, active: str, body: str) -> str:
     <img src="/assets/logo.png" alt="Aegis Harness Logo" />
   </a>
   <nav>
-    <a href="/" {nav_dash}>Dashboard</a>
-    <a href="/studio" {nav_studio}>Coding Studio</a>
-    <a href="/config" {nav_cfg}>Configuration</a>
-    <a href="/manual" {nav_man}>User Manual</a>
+    {nav_links}
     <button type="button" id="theme-toggle" class="secondary">Light Mode</button>
   </nav>
 </header>
@@ -150,11 +164,48 @@ def _desc(model_cls: Any, field_name: str) -> str:
     return html.escape(info.description or "") if info else ""
 
 
+def _resolve_dashboard_token(cfg: HarnessConfig, root: Path, override_token: Optional[str] = None) -> str:
+    if override_token:
+        return override_token
+    env_val = os.environ.get(cfg.dashboard.auth_token_env_var, "").strip()
+    if env_val:
+        return env_val
+    token_file = root / ".harness" / "keys" / "dashboard.token"
+    if token_file.exists():
+        return token_file.read_text(encoding="utf-8").strip()
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    generated = secrets.token_hex(24)
+    token_file.write_text(generated, encoding="utf-8")
+    os.chmod(token_file, 0o600)
+    return generated
+
+
+def _sign_session_cookie(token: str, expires_epoch: int) -> str:
+    msg = f"harness-session|{expires_epoch}".encode("utf-8")
+    sig = hmac.new(token.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+    return f"{expires_epoch}.{sig}"
+
+
+def _verify_session_cookie(cookie_val: Optional[str], token: str) -> bool:
+    if not cookie_val or "." not in cookie_val:
+        return False
+    exp_str, sig = cookie_val.split(".", 1)
+    if not exp_str.isdigit():
+        return False
+    expires_epoch = int(exp_str)
+    if time.time() > expires_epoch:
+        return False
+    expected = _sign_session_cookie(token, expires_epoch).split(".", 1)[1]
+    return hmac.compare_digest(sig, expected)
+
+
 def create_dashboard_app(
     config_path: Path,
     *,
     gateway_http_client: Any = None,
     telemetry_http_client: Any = None,
+    auth_enabled: Optional[bool] = None,
+    auth_token: Optional[str] = None,
 ) -> FastAPI:
     """Create the FastAPI local dashboard, coding studio, and form-based configuration webapp."""
     app = FastAPI(title="Aegis Harness Dashboard", version="0.1.0")
@@ -165,6 +216,97 @@ def create_dashboard_app(
         audit = AuditChain(root / cfg.audit.log_path, root / cfg.audit.checkpoint_dir)
         store = StateStore(root / cfg.audit.state_db_path)
         return cfg, root, audit, store
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        cfg, root, _audit, _store = _ctx()
+        enabled = cfg.dashboard.auth_enabled if auth_enabled is None else auth_enabled
+        if not enabled:
+            return await call_next(request)
+
+        path = request.url.path
+        if path in ("/login", "/logout", "/assets/logo.png"):
+            return await call_next(request)
+
+        expected_token = _resolve_dashboard_token(cfg, root, override_token=auth_token)
+        cookie_ok = _verify_session_cookie(request.cookies.get("harness_session"), expected_token)
+
+        auth_header = request.headers.get("authorization", "")
+        bearer_ok = False
+        if auth_header.startswith("Bearer "):
+            provided = auth_header[7:].strip()
+            bearer_ok = hmac.compare_digest(provided, expected_token)
+
+        if cookie_ok or bearer_ok:
+            return await call_next(request)
+
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "Authentication required."}, status_code=401)
+        return RedirectResponse(url="/login", status_code=303)
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_page(err: Optional[str] = None) -> str:
+        banner = f'<div class="banner banner-err">{html.escape(err)}</div>' if err else ""
+        body = f"""
+        <div class="card" style="max-width:460px;margin:40px auto;">
+          <h2>Sign In to Aegis Harness</h2>
+          <p class="help">Enter your dashboard access token (from <code>HARNESS_DASHBOARD_TOKEN</code> or <code>.harness/keys/dashboard.token</code>).</p>
+          {banner}
+          <form method="post" action="/login">
+            <div class="form-row">
+              <label for="token">Access Token</label>
+              <input type="password" id="token" name="token" required autofocus style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);" />
+            </div>
+            <button type="submit">Sign In</button>
+          </form>
+        </div>
+        """
+        return _page_shell("Sign In", "login", body, show_nav=False)
+
+    @app.post("/login")
+    async def login_submit(token: str = Form(...)):
+        cfg, root, audit, _store = _ctx()
+        expected = _resolve_dashboard_token(cfg, root, override_token=auth_token)
+        if not hmac.compare_digest(token.strip(), expected):
+            audit.append(
+                event_type="dashboard_login_failed",
+                actor="human:unknown",
+                outcome="deny",
+                repository=cfg.project.name,
+                policy_version=cfg.policy.version,
+                data_classification=cfg.project.data_classification.value,
+                details={"reason": "Invalid dashboard access token"},
+            )
+            return HTMLResponse(
+                await login_page(err="Invalid access token."),
+                status_code=401,
+            )
+
+        expires_epoch = int(time.time()) + (cfg.dashboard.session_ttl_minutes * 60)
+        cookie_val = _sign_session_cookie(expected, expires_epoch)
+        audit.append(
+            event_type="dashboard_login_success",
+            actor="human:operator",
+            outcome="allow",
+            repository=cfg.project.name,
+            policy_version=cfg.policy.version,
+            data_classification=cfg.project.data_classification.value,
+        )
+        resp = RedirectResponse(url="/", status_code=303)
+        resp.set_cookie(
+            key="harness_session",
+            value=cookie_val,
+            httponly=True,
+            samesite="lax",
+            max_age=cfg.dashboard.session_ttl_minutes * 60,
+        )
+        return resp
+
+    @app.post("/logout")
+    async def logout_submit() -> RedirectResponse:
+        resp = RedirectResponse(url="/login", status_code=303)
+        resp.delete_cookie("harness_session")
+        return resp
 
     @app.get("/assets/logo.png")
     async def logo_asset() -> FileResponse:

@@ -380,6 +380,19 @@ def cmd_dashboard(
     cfg = load_config(cfg_path)
     bind_host = host or cfg.dashboard.host
     bind_port = port or cfg.dashboard.port
+    if cfg.dashboard.auth_enabled:
+        import os
+
+        if not os.environ.get(cfg.dashboard.auth_token_env_var):
+            from harness.dashboard.app import _resolve_dashboard_token
+
+            root = _resolve_root(cfg_path)
+            _resolve_dashboard_token(cfg, root)
+            console.print(
+                f"Dashboard authentication enabled. Token stored in {root / '.harness' / 'keys' / 'dashboard.token'}"
+            )
+        else:
+            console.print(f"Dashboard authentication enabled via ${cfg.dashboard.auth_token_env_var}.")
     console.print(f"Starting Aegis Harness Dashboard at http://{bind_host}:{bind_port}")
     uvicorn.run(create_dashboard_app(cfg_path), host=bind_host, port=bind_port)
 

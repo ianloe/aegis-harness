@@ -42,7 +42,7 @@ def test_dashboard_renders_sessions_approvals_and_feed(tmp_path: Path) -> None:
         details={"input_tokens": 200, "output_tokens": 100, "cost_usd": 0.0009},
     )
 
-    client = TestClient(create_dashboard_app(cfg_path))
+    client = TestClient(create_dashboard_app(cfg_path, auth_enabled=False))
     resp = client.get("/")
     assert resp.status_code == 200
     assert "dash-demo" in resp.text
@@ -58,7 +58,7 @@ def test_dashboard_renders_sessions_approvals_and_feed(tmp_path: Path) -> None:
 
 def test_config_webapp_uses_forms_with_explanations_and_persists_yaml(tmp_path: Path) -> None:
     cfg_path, _cfg, _ = init_workspace(root=tmp_path, project_name="cfg-ui", asset_code="AI-001")
-    client = TestClient(create_dashboard_app(cfg_path))
+    client = TestClient(create_dashboard_app(cfg_path, auth_enabled=False))
 
     get_resp = client.get("/config")
     assert get_resp.status_code == 200
@@ -134,7 +134,7 @@ def test_cli_report_outputs_metrics(tmp_path: Path, monkeypatch) -> None:
 
 def test_user_manual_page_renders_guides(tmp_path: Path) -> None:
     cfg_path, _cfg, _ = init_workspace(root=tmp_path, project_name="manual-demo", asset_code="AI-001")
-    client = TestClient(create_dashboard_app(cfg_path))
+    client = TestClient(create_dashboard_app(cfg_path, auth_enabled=False))
     resp = client.get("/manual")
     assert resp.status_code == 200
     assert "Aegis Harness User Manual" in resp.text
@@ -188,6 +188,7 @@ def test_coding_studio_enforces_security_redaction_and_telemetry(tmp_path: Path,
         cfg_path,
         gateway_http_client=httpx.Client(transport=httpx.MockTransport(gw_handler)),
         telemetry_http_client=httpx.Client(transport=httpx.MockTransport(tel_handler)),
+        auth_enabled=False,
     )
     client = TestClient(app)
 
@@ -226,3 +227,46 @@ def test_coding_studio_enforces_security_redaction_and_telemetry(tmp_path: Path,
     chk_resp = client.post("/api/studio/check", json={"task_id": task_id})
     assert chk_resp.status_code == 200
     assert chk_resp.json()["passed"] is True
+
+
+def test_dashboard_authentication_blocks_unauthenticated_and_allows_login(tmp_path: Path) -> None:
+    cfg_path, cfg, _ = init_workspace(root=tmp_path, project_name="auth-demo", asset_code="AI-001")
+    audit = AuditChain(tmp_path / cfg.audit.log_path, tmp_path / cfg.audit.checkpoint_dir)
+    secret_token = "super-secret-dashboard-token"
+    client = TestClient(create_dashboard_app(cfg_path, auth_enabled=True, auth_token=secret_token))
+
+    # Public routes
+    assert client.get("/login").status_code == 200
+    assert client.get("/assets/logo.png").status_code == 200
+
+    # Protected HTML routes redirect to /login
+    for path in ("/", "/studio", "/config", "/manual"):
+        r = client.get(path, follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/login"
+
+    # Protected API routes return 401
+    assert client.get("/api/metrics").status_code == 401
+    assert client.post("/api/studio/prompt", json={"prompt": "hi"}).status_code == 401
+
+    # Bearer token works for API routes
+    assert (
+        client.get("/api/metrics", headers={"Authorization": f"Bearer {secret_token}"}).status_code == 200
+    )
+
+    # Bad login returns 401 and logs audit event
+    bad = client.post("/login", data={"token": "wrong-token"}, follow_redirects=False)
+    assert bad.status_code == 401
+    assert any(e.event_type == "dashboard_login_failed" for e in audit.read_all())
+
+    # Valid login sets session cookie and unlocks dashboard
+    ok = client.post("/login", data={"token": secret_token}, follow_redirects=False)
+    assert ok.status_code == 303
+    assert "harness_session" in ok.cookies
+    assert client.get("/").status_code == 200
+    assert client.get("/studio").status_code == 200
+
+    # Logout clears session
+    out = client.post("/logout", follow_redirects=False)
+    assert out.status_code == 303
+    assert client.get("/", follow_redirects=False).status_code == 303
