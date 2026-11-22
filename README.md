@@ -44,6 +44,12 @@
 - **Form-Based Configuration Webapp** (`/config`): Exposes `.harness/config.yaml` and three-tier risk policies as user-friendly forms with plain-English parameter explanations instead of raw JSON, validating and persisting updates back to YAML.
 - **CLI Governance Reporting** (`harness report`): Prints a summary table of task counts, USD cost, token usage, check failure rate, override rate, AI-authored line percentage, and audit chain verification status.
 
+### Phase 8: Threat Model, Runbook, Docker Compose & Demo
+- **STRIDE Threat Model** (`docs/THREAT_MODEL.md`): Maps spoofing, tampering, repudiation, information disclosure, denial of service, and elevation of privilege threats to Harness mitigations and Aegis telemetry signals.
+- **Operator Runbook** (`docs/RUNBOOK.md`): Covers local-first Git setup, publishing to GitHub, daily developer workflow, kill switch incident response, audit verification, and offline telemetry recovery.
+- **Docker Compose Deployment** (`Dockerfile`, `docker-compose.yml`): Packages the Harness dashboard and Mock Aegis server for team deployment.
+- **End-to-End Demo** (`scripts/demo.py`): Demonstrates model switching (Agnes AI), outbound secret redaction, secret gate blocking, two-person high-risk approval, mock Aegis OTLP telemetry, and audit chain verification.
+
 ## Quick Start
 
 ```bash
