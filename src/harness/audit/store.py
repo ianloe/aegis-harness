@@ -110,6 +110,11 @@ class StateStore:
             rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()
             return [dict(r) for r in rows]
 
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM sessions ORDER BY started_at DESC").fetchall()
+            return [dict(r) for r in rows]
+
     def set_active_model(self, task_id: str, model: str, now_iso: str) -> None:
         with self._connect() as conn:
             conn.execute(

@@ -39,6 +39,11 @@
 - **Least-Privilege Task Tokens** (`src/harness/sandbox/tokens.py`): Mints short-lived HMAC-signed per-task scoped tokens that are revoked immediately on kill switch activation.
 - **Rapid Kill Switch** (`harness killswitch`): Terminates active sandboxed processes and containers within 5 seconds, revokes tokens, halts active sessions, and logs the event to the audit chain.
 
+### Phase 7: Local Web Dashboard, Reporting & Configuration UI
+- **Local Web Dashboard** (`harness dashboard`, `src/harness/dashboard/app.py`): Displays live and recent sessions, model usage and USD cost, gate results, pending human approvals (with inline approve action), and the policy decision feed.
+- **Form-Based Configuration Webapp** (`/config`): Exposes `.harness/config.yaml` and three-tier risk policies as user-friendly forms with plain-English parameter explanations instead of raw JSON, validating and persisting updates back to YAML.
+- **CLI Governance Reporting** (`harness report`): Prints a summary table of task counts, USD cost, token usage, check failure rate, override rate, AI-authored line percentage, and audit chain verification status.
+
 ## Quick Start
 
 ```bash

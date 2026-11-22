@@ -14,9 +14,11 @@ from harness.audit.chain import AuditChain, utc_now_iso
 from harness.audit.store import StateStore
 from harness.config.loader import find_config_path, init_workspace, load_config
 from harness.config.schema import RiskTier
+from harness.dashboard import create_dashboard_app
 from harness.gitops import GateRunner, GitGovernanceError, GitWorkflow
 from harness.policy import PolicyEngine, PolicyOutcome
 from harness.sandbox import SandboxManager
+from harness.telemetry import compute_metrics
 
 app = typer.Typer(
     name="harness",
@@ -345,11 +347,41 @@ def cmd_killswitch(reason: str = typer.Option("Manual operator halt", "--reason"
 
 @app.command("report")
 def cmd_report() -> None:
-    """Display governance, cost, and check-gate metrics (Phase 7)."""
-    _cfg, _root, audit, store = _open_audit_and_store()
+    """Display governance, cost, and check-gate metrics."""
+    cfg, _root, audit, _store = _open_audit_and_store()
     entries = audit.read_all()
-    tasks = store.list_tasks()
-    console.print(f"Tasks recorded: {len(tasks)} | Audit entries: {len(entries)}")
+    metrics = compute_metrics(entries)
+    verify = audit.verify()
+
+    table = Table(title=f"Governance Report - {cfg.project.name} ({cfg.project.asset_code})")
+    table.add_column("Metric")
+    table.add_column("Value")
+    table.add_row("Total Tasks", str(metrics.total_tasks))
+    table.add_row("Total Cost (USD)", f"${metrics.total_cost_usd:.4f}")
+    table.add_row("Cost per Task (USD)", f"${metrics.cost_per_task_usd:.4f}")
+    table.add_row("Total Tokens", str(metrics.total_tokens))
+    table.add_row("Tokens per Task", f"{metrics.tokens_per_task:.1f}")
+    table.add_row("Check Failure Rate", f"{metrics.check_failure_rate * 100:.1f}%")
+    table.add_row("Human Override Rate", f"{metrics.human_override_rate * 100:.1f}%")
+    table.add_row("AI-Authored Lines", f"{metrics.ai_authored_lines_pct:.1f}%")
+    table.add_row("Audit Chain Status", "VERIFIED" if verify.valid else "TAMPERED")
+    console.print(table)
+
+
+@app.command("dashboard")
+def cmd_dashboard(
+    host: Optional[str] = typer.Option(None, "--host", help="Bind host (default from config)."),
+    port: Optional[int] = typer.Option(None, "--port", help="Bind port (default from config)."),
+) -> None:
+    """Launch the local web dashboard and form-based configuration UI."""
+    import uvicorn
+
+    cfg_path = find_config_path()
+    cfg = load_config(cfg_path)
+    bind_host = host or cfg.dashboard.host
+    bind_port = port or cfg.dashboard.port
+    console.print(f"Starting Aegis Harness Dashboard at http://{bind_host}:{bind_port}")
+    uvicorn.run(create_dashboard_app(cfg_path), host=bind_host, port=bind_port)
 
 
 if __name__ == "__main__":
