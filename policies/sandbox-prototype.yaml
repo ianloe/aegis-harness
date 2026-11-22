@@ -1,0 +1,40 @@
+# Sample Policy Profile: Sandbox Prototype (Fast Internal R&D)
+version: "1.0.0-sandbox"
+default_risk_tier: low
+require_signed_commits: false
+restricted_paths:
+  - ".env*"
+  - "*.pem"
+  - "*.key"
+allowed_tools:
+  - read_file
+  - write_file
+  - search
+  - pytest
+  - ruff
+  - git
+allowed_commands:
+  - pytest
+  - ruff
+  - python -m pytest
+  - git status
+  - git diff
+risk_tiers:
+  low:
+    required_approvals: 0
+    require_distinct_approver: false
+    max_diff_lines: 800
+    required_checks: ["secrets", "tests"]
+    require_governance_office: false
+  medium:
+    required_approvals: 1
+    require_distinct_approver: true
+    max_diff_lines: 1200
+    required_checks: ["secrets", "sast", "tests"]
+    require_governance_office: false
+  high:
+    required_approvals: 1
+    require_distinct_approver: true
+    max_diff_lines: 2000
+    required_checks: ["secrets", "sast", "deps", "tests", "diff"]
+    require_governance_office: false

@@ -1,0 +1,45 @@
+# Sample Policy Profile: Strict Fintech (Regulated / Restricted)
+version: "2.0.0"
+default_risk_tier: high
+require_signed_commits: true
+restricted_paths:
+  - ".github/workflows/**"
+  - ".gitlab-ci.yml"
+  - "infra/**"
+  - "terraform/**"
+  - "payments/**"
+  - "auth/**"
+  - ".env*"
+  - "*.pem"
+  - "*.key"
+allowed_tools:
+  - read_file
+  - write_file
+  - search
+  - pytest
+  - ruff
+allowed_commands:
+  - pytest
+  - ruff
+  - mypy
+  - git status
+  - git diff
+risk_tiers:
+  low:
+    required_approvals: 1
+    require_distinct_approver: true
+    max_diff_lines: 150
+    required_checks: ["secrets", "sast", "deps", "tests", "diff"]
+    require_governance_office: false
+  medium:
+    required_approvals: 2
+    require_distinct_approver: true
+    max_diff_lines: 350
+    required_checks: ["secrets", "sast", "deps", "tests", "diff"]
+    require_governance_office: false
+  high:
+    required_approvals: 2
+    require_distinct_approver: true
+    max_diff_lines: 500
+    required_checks: ["secrets", "sast", "deps", "tests", "diff"]
+    require_governance_office: true

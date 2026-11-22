@@ -14,6 +14,7 @@ from harness.audit.chain import AuditChain, utc_now_iso
 from harness.audit.store import StateStore
 from harness.config.loader import find_config_path, init_workspace, load_config
 from harness.config.schema import RiskTier
+from harness.policy import PolicyEngine, PolicyOutcome
 
 app = typer.Typer(
     name="harness",
@@ -229,9 +230,16 @@ def cmd_pr() -> None:
 def cmd_approve(
     task_id: str = typer.Argument(..., help="Task ID awaiting approval."),
     approver: str = typer.Option(..., "--approver", help="Approver email or identifier."),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Optional approval notes."),
 ) -> None:
-    """Record a second-person human approval for medium or high risk tasks (Phase 3/4)."""
-    console.print(f"[yellow]Phase 3/4 pending:[/yellow] approval for {task_id} by {approver}.")
+    """Record a second-person human approval for medium or high risk tasks."""
+    cfg, _root, audit, store = _open_audit_and_store()
+    engine = PolicyEngine(cfg, audit, store)
+    decision = engine.record_approval(task_id=task_id, approver=approver, notes=notes)
+    if decision.outcome == PolicyOutcome.DENY:
+        console.print(f"[red]Approval denied:[/red] {decision.reason}")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Approval recorded[/green] for {task_id} by {approver} (policy v{decision.policy_version}).")
 
 
 @app.command("killswitch")

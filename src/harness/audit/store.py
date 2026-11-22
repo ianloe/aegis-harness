@@ -164,3 +164,31 @@ class StateStore:
                 """,
                 (date_utc, entries_count, head_hash, signature, created_at),
             )
+
+    def record_approval(
+        self,
+        *,
+        task_id: str,
+        requester: str,
+        approver: str,
+        risk_tier: str,
+        decision: str,
+        notes: Optional[str],
+        now_iso: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO approvals (task_id, requester, approver, risk_tier, decision, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, requester, approver, risk_tier, decision, notes, now_iso),
+            )
+
+    def list_approvals(self, task_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM approvals WHERE task_id = ? ORDER BY created_at ASC",
+                (task_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
