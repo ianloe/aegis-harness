@@ -70,8 +70,8 @@ class AegisConfig(BaseModel):
     """Connection and batching settings for Aegis telemetry."""
 
     endpoint: str = Field(
-        default="http://localhost:3000",
-        description="Base URL of the Aegis server (for example http://localhost:3000).",
+        default="https://aegisx.ianloehome.net",
+        description="Base URL of the Aegis server (for example https://aegisx.ianloehome.net).",
     )
     token_env_var: str = Field(
         default="AEGIS_TELEMETRY_TOKEN",
