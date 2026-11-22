@@ -50,7 +50,7 @@
 ### Phase 8: Threat Model, Runbook, Docker Compose & Demo
 - **STRIDE Threat Model** (`docs/THREAT_MODEL.md`): Maps spoofing, tampering, repudiation, information disclosure, denial of service, and elevation of privilege threats to Harness mitigations and Aegis telemetry signals.
 - **Operator Runbook** (`docs/RUNBOOK.md`): Covers local-first Git setup, publishing to GitHub, daily developer workflow, kill switch incident response, audit verification, and offline telemetry recovery.
-- **Docker Compose Deployment** (`Dockerfile`, `docker-compose.yml`): Packages the Harness dashboard and Mock Aegis server for team deployment.
+- **Docker Compose Deployment** (`Dockerfile`, `docker-compose.yml`): Packages the Harness dashboard and configuration UI for team deployment, connecting directly to Aegis (`https://aegisx.ianloehome.net`).
 - **End-to-End Demo** (`scripts/demo.py`): Demonstrates model switching (Agnes AI), outbound secret redaction, secret gate blocking, two-person high-risk approval, mock Aegis OTLP telemetry, and audit chain verification.
 
 ## Quick Start

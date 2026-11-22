@@ -1,16 +1,8 @@
 services:
-  mock-aegis:
-    build: .
-    command: ["uvicorn", "harness.telemetry.mock_aegis:create_mock_aegis_app", "--factory", "--host", "0.0.0.0", "--port", "3000"]
-    ports:
-      - "${MOCK_AEGIS_PORT:-3001}:3000"
-
   harness-dashboard:
     build: .
-    depends_on:
-      - mock-aegis
     environment:
-      - AEGIS_TELEMETRY_TOKEN=${AEGIS_TELEMETRY_TOKEN:-aegis_test_token_1234567890abcdef}
+      - AEGIS_TELEMETRY_TOKEN=${AEGIS_TELEMETRY_TOKEN:-}
     ports:
       - "8787:8787"
     volumes:
