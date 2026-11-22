@@ -3,7 +3,7 @@ services:
     build: .
     command: ["uvicorn", "harness.telemetry.mock_aegis:create_mock_aegis_app", "--factory", "--host", "0.0.0.0", "--port", "3000"]
     ports:
-      - "3000:3000"
+      - "${MOCK_AEGIS_PORT:-3001}:3000"
 
   harness-dashboard:
     build: .
