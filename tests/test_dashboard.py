@@ -141,6 +141,8 @@ def test_user_manual_page_renders_guides(tmp_path: Path) -> None:
     assert "Agnes AI" in resp.text
     assert "CLI Command Reference" in resp.text
     assert "/assets/logo.png" in resp.text
+    assert "id=\"theme-toggle\"" in resp.text
+    assert "data-theme" in resp.text
 
     logo_resp = client.get("/assets/logo.png")
     assert logo_resp.status_code == 200

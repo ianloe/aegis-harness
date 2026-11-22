@@ -30,14 +30,16 @@ from harness.policy import PolicyEngine, PolicyOutcome
 from harness.telemetry import compute_metrics
 
 BASE_CSS = """
-:root { --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #f1f5f9; --muted: #94a3b8; --accent: #38bdf8; --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444; }
+:root { --bg: #0f172a; --header-bg: #020617; --card: #1e293b; --input-bg: #0f172a; --border: #334155; --text: #f1f5f9; --muted: #94a3b8; --accent: #38bdf8; --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444; --btn-text: #020617; }
+[data-theme="light"] { --bg: #f8fafc; --header-bg: #ffffff; --card: #ffffff; --input-bg: #f8fafc; --border: #cbd5e1; --text: #0f172a; --muted: #475569; --accent: #0284c7; --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --btn-text: #ffffff; }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
-header { background: #020617; border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+header { background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
 header h1 { margin: 0; font-size: 1.15rem; letter-spacing: 0.02em; }
-.brand-logo { background: #ffffff; padding: 6px 12px; border-radius: 8px; display: inline-flex; align-items: center; }
+.brand-logo { background: #ffffff; padding: 6px 12px; border-radius: 8px; display: inline-flex; align-items: center; border: 1px solid var(--border); }
 .brand-logo img { height: 36px; width: auto; display: block; }
-nav a { color: var(--muted); text-decoration: none; margin-left: 18px; font-weight: 500; }
+nav { display: flex; align-items: center; gap: 18px; }
+nav a { color: var(--muted); text-decoration: none; font-weight: 500; }
 nav a.active, nav a:hover { color: var(--accent); }
 main { max-width: 1180px; margin: 24px auto; padding: 0 20px 48px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
@@ -56,14 +58,14 @@ th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: 
 .form-row { margin-bottom: 14px; }
 label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
 .help { font-size: 0.8rem; color: var(--muted); margin-top: 3px; }
-input[type=text], input[type=number], select { width: 100%; max-width: 540px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: #0f172a; color: var(--text); font-size: 0.9rem; }
+input[type=text], input[type=number], select { width: 100%; max-width: 540px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text); font-size: 0.9rem; }
 input[type=checkbox] { transform: scale(1.15); margin-right: 8px; }
-button { background: var(--accent); color: #020617; border: 0; border-radius: 6px; padding: 9px 16px; font-weight: 700; cursor: pointer; font-size: 0.9rem; }
-button.secondary { background: #334155; color: var(--text); padding: 6px 10px; font-size: 0.8rem; }
+button { background: var(--accent); color: var(--btn-text); border: 0; border-radius: 6px; padding: 9px 16px; font-weight: 700; cursor: pointer; font-size: 0.9rem; }
+button.secondary { background: var(--border); color: var(--text); padding: 6px 10px; font-size: 0.8rem; }
 .banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; background: rgba(34,197,94,0.15); border: 1px solid var(--ok); color: var(--ok); }
 .banner-err { background: rgba(239,68,68,0.15); border: 1px solid var(--bad); color: var(--bad); }
 .tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-.tier-box { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: #0f172a; }
+.tier-box { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--input-bg); }
 """
 
 
@@ -78,6 +80,12 @@ def _page_shell(title: str, active: str, body: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{html.escape(title)} - Aegis Harness</title>
 <style>{BASE_CSS}</style>
+<script>
+(function() {{
+  var saved = localStorage.getItem('harness-theme') || 'dark';
+  if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+}})();
+</script>
 </head>
 <body>
 <header>
@@ -88,9 +96,31 @@ def _page_shell(title: str, active: str, body: str) -> str:
     <a href="/" {nav_dash}>Dashboard</a>
     <a href="/config" {nav_cfg}>Configuration</a>
     <a href="/manual" {nav_man}>User Manual</a>
+    <button type="button" id="theme-toggle" class="secondary">Light Mode</button>
   </nav>
 </header>
 <main>{body}</main>
+<script>
+(function() {{
+  var btn = document.getElementById('theme-toggle');
+  function sync() {{
+    var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    btn.textContent = isLight ? 'Dark Mode' : 'Light Mode';
+  }}
+  btn.addEventListener('click', function() {{
+    var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    if (isLight) {{
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('harness-theme', 'dark');
+    }} else {{
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('harness-theme', 'light');
+    }}
+    sync();
+  }});
+  sync();
+}})();
+</script>
 </body>
 </html>"""
 
