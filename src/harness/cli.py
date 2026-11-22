@@ -16,6 +16,7 @@ from harness.config.loader import find_config_path, init_workspace, load_config
 from harness.config.schema import RiskTier
 from harness.gitops import GateRunner, GitGovernanceError, GitWorkflow
 from harness.policy import PolicyEngine, PolicyOutcome
+from harness.sandbox import SandboxManager
 
 app = typer.Typer(
     name="harness",
@@ -332,18 +333,14 @@ def cmd_approve(
 @app.command("killswitch")
 def cmd_killswitch(reason: str = typer.Option("Manual operator halt", "--reason", help="Reason for halt.")) -> None:
     """Immediately halt all active agent sessions and revoke task credentials."""
-    cfg, _root, audit, store = _open_audit_and_store()
-    halted = store.halt_all_sessions(utc_now_iso())
-    audit.append(
-        event_type="kill_switch",
-        actor="human:operator",
-        outcome="halted",
-        repository=cfg.project.name,
-        policy_version=cfg.policy.version,
-        data_classification=cfg.project.data_classification.value,
-        details={"halted_sessions": halted, "reason": reason},
+    cfg, root, audit, store = _open_audit_and_store()
+    mgr = SandboxManager(cfg, audit, store, root)
+    summary = mgr.activate_killswitch(reason=reason)
+    console.print(
+        f"[red]Kill switch activated.[/red] Halted {summary['halted_sessions']} session(s), "
+        f"terminated {summary['terminated_processes']} process(es), "
+        f"revoked {summary['revoked_tokens']} token(s)."
     )
-    console.print(f"[red]Kill switch activated.[/red] Halted {halted} active session(s).")
 
 
 @app.command("report")

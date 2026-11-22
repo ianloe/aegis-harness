@@ -33,6 +33,12 @@
 - **Governance Metrics** (`src/harness/telemetry/metrics.py`): Computes cost per task, tokens per task, check failure rate, human override rate, time to merge, AI-authored line percentage, and policy denials by type.
 - **Mock Aegis Server** (`src/harness/telemetry/mock_aegis.py`): FastAPI mock server validated against Aegis's Zod contracts for local and CI testing.
 
+### Phase 6: Agent Sandbox & Kill Switch
+- **Isolated Execution** (`src/harness/sandbox/manager.py`): Runs agent commands in isolated Git worktrees (`agent/<task-id>`) or Docker containers with network disabled by default (`--network none`), CPU/memory caps, and allow-listed commands.
+- **Prompt-Injection Defence** (`src/harness/sandbox/injection.py`): Scans repository content and comments for instruction overrides, guardrail-bypass attempts, and exfiltration directives, logging detections as `incident` events.
+- **Least-Privilege Task Tokens** (`src/harness/sandbox/tokens.py`): Mints short-lived HMAC-signed per-task scoped tokens that are revoked immediately on kill switch activation.
+- **Rapid Kill Switch** (`harness killswitch`): Terminates active sandboxed processes and containers within 5 seconds, revokes tokens, halts active sessions, and logs the event to the audit chain.
+
 ## Quick Start
 
 ```bash
