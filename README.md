@@ -41,8 +41,9 @@
 - **Least-Privilege Task Tokens** (`src/harness/sandbox/tokens.py`): Mints short-lived HMAC-signed per-task scoped tokens that are revoked immediately on kill switch activation.
 - **Rapid Kill Switch** (`harness killswitch`): Terminates active sandboxed processes and containers within 5 seconds, revokes tokens, halts active sessions, and logs the event to the audit chain.
 
-### Phase 7: Local Web Dashboard, Reporting & Configuration UI
-- **Local Web Dashboard** (`harness dashboard`, `src/harness/dashboard/app.py`): Displays live and recent sessions, model usage and USD cost, gate results, pending human approvals (with inline approve action), and the policy decision feed.
+### Phase 7: Local Web Dashboard, Coding Studio, Reporting & Configuration UI
+- **Local Web Dashboard** (`harness dashboard`, `src/harness/dashboard/app.py`): Displays live and recent sessions, model usage and USD cost, gate results, pending human approvals (with inline approve action), and the policy decision feed, with a Light/Dark mode toggle.
+- **Governed Coding Studio** (`/studio`): Interactive Antigravity-style prompting workspace where developers can create tasks, switch models, and send coding prompts while Harness automatically blocks prompt injection, redacts secrets/PII, checks policies, logs to the audit chain, and streams OTLP telemetry to Aegis.
 - **Form-Based Configuration Webapp** (`/config`): Exposes `.harness/config.yaml` and three-tier risk policies as user-friendly forms with plain-English parameter explanations instead of raw JSON, validating and persisting updates back to YAML.
 - **Built-in User Manual** (`/manual`): Interactive web guide covering local-first Git setup, model providers (including Agnes AI), risk tiers, daily workflow, audit verification, kill switch, and CLI reference.
 - **CLI Governance Reporting** (`harness report`): Prints a summary table of task counts, USD cost, token usage, check failure rate, override rate, AI-authored line percentage, and audit chain verification status.

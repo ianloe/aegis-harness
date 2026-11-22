@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from harness.audit.chain import AuditChain
+from harness.audit.chain import AuditChain, utc_now_iso
 from harness.audit.store import StateStore
 from harness.config.loader import load_config, save_config
 from harness.config.schema import (
@@ -25,9 +25,18 @@ from harness.config.schema import (
     ProjectConfig,
     RiskTier,
     SandboxConfig,
+    TaskType,
 )
+from harness.gateway import GatewayError, ModelGateway
+from harness.gitops import GateRunner
 from harness.policy import PolicyEngine, PolicyOutcome
-from harness.telemetry import compute_metrics
+from harness.sandbox import SandboxManager, scan_for_prompt_injection
+from harness.telemetry import (
+    AegisTelemetryExporter,
+    HarnessEvent,
+    HarnessEventType,
+    compute_metrics,
+)
 
 BASE_CSS = """
 :root { --bg: #0f172a; --header-bg: #020617; --card: #1e293b; --input-bg: #0f172a; --border: #334155; --text: #f1f5f9; --muted: #94a3b8; --accent: #38bdf8; --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444; --btn-text: #020617; }
@@ -71,6 +80,7 @@ button.secondary { background: var(--border); color: var(--text); padding: 6px 1
 
 def _page_shell(title: str, active: str, body: str) -> str:
     nav_dash = 'class="active"' if active == "dashboard" else ""
+    nav_studio = 'class="active"' if active == "studio" else ""
     nav_cfg = 'class="active"' if active == "config" else ""
     nav_man = 'class="active"' if active == "manual" else ""
     return f"""<!doctype html>
@@ -94,6 +104,7 @@ def _page_shell(title: str, active: str, body: str) -> str:
   </a>
   <nav>
     <a href="/" {nav_dash}>Dashboard</a>
+    <a href="/studio" {nav_studio}>Coding Studio</a>
     <a href="/config" {nav_cfg}>Configuration</a>
     <a href="/manual" {nav_man}>User Manual</a>
     <button type="button" id="theme-toggle" class="secondary">Light Mode</button>
@@ -139,8 +150,13 @@ def _desc(model_cls: Any, field_name: str) -> str:
     return html.escape(info.description or "") if info else ""
 
 
-def create_dashboard_app(config_path: Path) -> FastAPI:
-    """Create the FastAPI local dashboard and form-based configuration webapp."""
+def create_dashboard_app(
+    config_path: Path,
+    *,
+    gateway_http_client: Any = None,
+    telemetry_http_client: Any = None,
+) -> FastAPI:
+    """Create the FastAPI local dashboard, coding studio, and form-based configuration webapp."""
     app = FastAPI(title="Aegis Harness Dashboard", version="0.1.0")
 
     def _ctx():
@@ -165,6 +181,438 @@ def create_dashboard_app(config_path: Path) -> FastAPI:
     async def api_audit() -> JSONResponse:
         _cfg, _root, audit, _store = _ctx()
         return JSONResponse([e.model_dump() for e in audit.read_all()])
+
+    @app.get("/studio", response_class=HTMLResponse)
+    async def coding_studio() -> str:
+        cfg, _root, audit, store = _ctx()
+        tasks = store.list_tasks()
+        verify = audit.verify()
+        queue_counts = store.telemetry_queue_counts()
+
+        all_models: List[str] = []
+        for prov in cfg.gateway.providers:
+            for m in prov.models:
+                if m not in all_models:
+                    all_models.append(m)
+
+        model_opts = "".join(
+            f'<option value="{html.escape(m)}" {"selected" if m == cfg.gateway.default_model else ""}>{html.escape(m)}</option>'
+            for m in all_models
+        )
+        task_opts = "".join(
+            f'<option value="{html.escape(t["task_id"])}">{html.escape(t["task_id"])} - {html.escape(t["title"][:32])} ({html.escape(t["risk_tier"])})</option>'
+            for t in tasks
+        ) or '<option value="studio-default">studio-default (medium)</option>'
+
+        task_type_opts = "".join(
+            f'<option value="{tt.value}" {"selected" if tt == TaskType.GENERATE else ""}>{tt.value}</option>'
+            for tt in TaskType
+        )
+
+        body = f"""
+        <style>
+          .studio-layout {{ display: grid; grid-template-columns: 270px 1fr 270px; gap: 16px; align-items: start; }}
+          @media (max-width: 980px) {{ .studio-layout {{ grid-template-columns: 1fr; }} }}
+          .chat-feed {{ min-height: 400px; max-height: 540px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); margin-bottom: 12px; }}
+          .msg {{ padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }}
+          .msg-user {{ border-left: 3px solid var(--accent); }}
+          .msg-ai {{ border-left: 3px solid var(--ok); }}
+          .msg-err {{ border-left: 3px solid var(--bad); }}
+          .msg pre {{ white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; margin: 6px 0 0; }}
+          .chips {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
+          .chip {{ font-size: 0.72rem; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }}
+          textarea#prompt-input {{ width: 100%; min-height: 88px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text); font-family: inherit; font-size: 0.92rem; resize: vertical; }}
+        </style>
+        <div class="studio-layout">
+          <div class="card">
+            <h2>Task &amp; Model</h2>
+            <div class="form-row">
+              <label>Active Task</label>
+              <select id="task-select">{task_opts}</select>
+            </div>
+            <div class="form-row">
+              <label>Task Type</label>
+              <select id="task-type">{task_type_opts}</select>
+            </div>
+            <div class="form-row">
+              <label>Model</label>
+              <select id="model-select">{model_opts}</select>
+              <div class="help">Repo classification: <strong>{html.escape(cfg.project.data_classification.value)}</strong></div>
+            </div>
+            <hr style="border:0;border-top:1px solid var(--border);margin:14px 0;" />
+            <h3>Quick New Task</h3>
+            <div class="form-row">
+              <input type="text" id="new-task-title" placeholder="Task title..." />
+            </div>
+            <div class="form-row">
+              <select id="new-task-risk">
+                <option value="low">low</option>
+                <option value="medium" selected>medium</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+            <button type="button" id="create-task-btn" class="secondary">Create Task</button>
+          </div>
+
+          <div class="card">
+            <h2>Governed Coding Studio</h2>
+            <p class="help">Every prompt is scanned for prompt injection, redacted for secrets and PII, policy-checked, audited, and emitted to Aegis (<code>{html.escape(cfg.aegis.endpoint)}</code>).</p>
+            <div id="chat-feed" class="chat-feed">
+              <div class="msg">
+                <strong>Harness Ready</strong>
+                <div class="help">Type a coding prompt below (press Cmd/Ctrl + Enter to send).</div>
+              </div>
+            </div>
+            <div class="form-row">
+              <textarea id="prompt-input" placeholder="Ask the coding model to plan, generate, refactor, review, or write tests..."></textarea>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span class="help" id="studio-status">Idle</span>
+              <button type="button" id="send-btn">Send Prompt</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Live Guardrails</h2>
+            <div class="form-row">
+              <div class="stat-label">Audit Chain</div>
+              <div id="guard-audit">{_outcome_badge("verified" if verify.valid else "tampered")}</div>
+            </div>
+            <div class="form-row">
+              <div class="stat-label">Aegis Telemetry Queue</div>
+              <div class="help" id="guard-queue">Delivered: {queue_counts.get("delivered", 0)} | Pending: {queue_counts.get("pending", 0)}</div>
+            </div>
+            <div class="form-row">
+              <div class="stat-label">Secret &amp; PII Redaction</div>
+              <div>{_outcome_badge("active" if cfg.gateway.redact_secrets else "off")}</div>
+            </div>
+            <div class="form-row" style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+              <button type="button" id="run-gates-btn" class="secondary">Run Security Gates</button>
+              <button type="button" id="killswitch-btn" style="background:var(--bad);color:#fff;">Activate Kill Switch</button>
+            </div>
+            <div id="guard-output" class="help" style="margin-top:10px;"></div>
+          </div>
+        </div>
+        <script>
+        (function() {{
+          var feed = document.getElementById('chat-feed');
+          var input = document.getElementById('prompt-input');
+          var sendBtn = document.getElementById('send-btn');
+          var statusEl = document.getElementById('studio-status');
+          var queueEl = document.getElementById('guard-queue');
+          var outEl = document.getElementById('guard-output');
+
+          function appendMsg(cls, title, bodyText, chips) {{
+            var div = document.createElement('div');
+            div.className = 'msg ' + cls;
+            var strong = document.createElement('strong');
+            strong.textContent = title;
+            div.appendChild(strong);
+            var pre = document.createElement('pre');
+            pre.textContent = bodyText;
+            div.appendChild(pre);
+            if (chips && chips.length) {{
+              var row = document.createElement('div');
+              row.className = 'chips';
+              chips.forEach(function(c) {{
+                var sp = document.createElement('span');
+                sp.className = 'chip';
+                sp.textContent = c;
+                row.appendChild(sp);
+              }});
+              div.appendChild(row);
+            }}
+            feed.appendChild(div);
+            feed.scrollTop = feed.scrollHeight;
+          }}
+
+          async function sendPrompt() {{
+            var text = input.value.trim();
+            if (!text) return;
+            var taskId = document.getElementById('task-select').value;
+            var taskType = document.getElementById('task-type').value;
+            var model = document.getElementById('model-select').value;
+
+            appendMsg('msg-user', 'You (' + model + ' / ' + taskType + ')', text, []);
+            input.value = '';
+            sendBtn.disabled = true;
+            statusEl.textContent = 'Running guardrails & model call...';
+
+            try {{
+              var resp = await fetch('/api/studio/prompt', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ task_id: taskId, task_type: taskType, model: model, prompt: text }})
+              }});
+              var data = await resp.json();
+              if (!resp.ok) {{
+                appendMsg('msg-err', 'Blocked by Harness', data.detail || data.error || 'Request denied', ['status:' + resp.status]);
+              }} else {{
+                var chips = [
+                  'model:' + data.model,
+                  'provider:' + data.provider,
+                  'tokens:' + data.total_tokens,
+                  'cost:$' + Number(data.cost_usd).toFixed(5),
+                  data.redacted_categories.length ? ('redacted:' + data.redacted_categories.join(',')) : 'redaction:clean',
+                  'audit:' + data.audit_hash.slice(0, 12)
+                ];
+                appendMsg('msg-ai', 'Model Response', data.content, chips);
+                if (data.telemetry_queue) {{
+                  queueEl.textContent = 'Delivered: ' + (data.telemetry_queue.delivered || 0) + ' | Pending: ' + (data.telemetry_queue.pending || 0);
+                }}
+              }}
+            }} catch (e) {{
+              appendMsg('msg-err', 'Network Error', String(e), []);
+            }} finally {{
+              sendBtn.disabled = false;
+              statusEl.textContent = 'Idle';
+            }}
+          }}
+
+          sendBtn.addEventListener('click', sendPrompt);
+          input.addEventListener('keydown', function(e) {{
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sendPrompt();
+          }});
+
+          document.getElementById('create-task-btn').addEventListener('click', async function() {{
+            var title = document.getElementById('new-task-title').value.trim();
+            var risk = document.getElementById('new-task-risk').value;
+            if (!title) return;
+            var resp = await fetch('/api/studio/tasks', {{
+              method: 'POST',
+              headers: {{ 'Content-Type': 'application/json' }},
+              body: JSON.stringify({{ title: title, risk_tier: risk }})
+            }});
+            var data = await resp.json();
+            if (resp.ok) {{
+              var sel = document.getElementById('task-select');
+              var opt = document.createElement('option');
+              opt.value = data.task_id;
+              opt.textContent = data.task_id + ' - ' + title + ' (' + risk + ')';
+              sel.insertBefore(opt, sel.firstChild);
+              sel.value = data.task_id;
+              document.getElementById('new-task-title').value = '';
+              outEl.textContent = 'Created ' + data.task_id;
+            }}
+          }});
+
+          document.getElementById('run-gates-btn').addEventListener('click', async function() {{
+            var taskId = document.getElementById('task-select').value;
+            outEl.textContent = 'Running security gates...';
+            var resp = await fetch('/api/studio/check', {{
+              method: 'POST',
+              headers: {{ 'Content-Type': 'application/json' }},
+              body: JSON.stringify({{ task_id: taskId }})
+            }});
+            var data = await resp.json();
+            outEl.textContent = 'Gates ' + (data.passed ? 'PASSED' : 'FAILED') + ': ' + data.results.map(function(r) {{ return r.name + '=' + (r.passed ? 'ok' : 'fail'); }}).join(', ');
+          }});
+
+          document.getElementById('killswitch-btn').addEventListener('click', async function() {{
+            var resp = await fetch('/api/studio/killswitch', {{ method: 'POST' }});
+            var data = await resp.json();
+            outEl.textContent = 'Kill switch activated. Halted sessions: ' + data.halted_sessions;
+          }});
+        }})();
+        </script>
+        """
+        return _page_shell("Coding Studio", "studio", body)
+
+    @app.post("/api/studio/tasks")
+    async def studio_create_task(request: Request) -> JSONResponse:
+        cfg, _root, audit, store = _ctx()
+        body = await request.json()
+        title = str(body.get("title", "Studio task")).strip() or "Studio task"
+        risk_tier = RiskTier(str(body.get("risk_tier", cfg.policy.default_risk_tier.value)))
+        import uuid
+
+        task_id = f"task-{uuid.uuid4().hex[:8]}"
+        session_id = f"sess-{uuid.uuid4().hex[:8]}"
+        branch = f"{cfg.git.branch_prefix}{task_id}"
+        now = utc_now_iso()
+        store.create_task(
+            task_id=task_id,
+            title=title,
+            risk_tier=risk_tier.value,
+            branch=branch,
+            requester="human:studio",
+            active_model=cfg.gateway.default_model,
+            now_iso=now,
+        )
+        store.create_session(
+            session_id=session_id,
+            task_id=task_id,
+            actor="human:studio",
+            model=cfg.gateway.default_model,
+            now_iso=now,
+        )
+        audit.append(
+            event_type="session_start",
+            actor="human:studio",
+            session_id=session_id,
+            task_id=task_id,
+            repository=cfg.project.name,
+            branch=branch,
+            model=cfg.gateway.default_model,
+            risk_tier=risk_tier.value,
+            policy_version=cfg.policy.version,
+            data_classification=cfg.project.data_classification.value,
+            details={"title": title},
+        )
+        exporter = AegisTelemetryExporter(cfg, store, http_client=telemetry_http_client)
+        exporter.emit(
+            HarnessEvent(
+                event_type=HarnessEventType.SESSION_START,
+                session_id=session_id,
+                task_id=task_id,
+                actor="human:studio",
+                repository=cfg.project.name,
+                branch=branch,
+                model=cfg.gateway.default_model,
+                risk_tier=risk_tier.value,
+                policy_version=cfg.policy.version,
+                data_classification=cfg.project.data_classification.value,
+                details={"title": title},
+            )
+        )
+        return JSONResponse({"task_id": task_id, "session_id": session_id, "branch": branch}, status_code=201)
+
+    @app.post("/api/studio/prompt")
+    async def studio_prompt(request: Request) -> JSONResponse:
+        cfg, root, audit, store = _ctx()
+        body = await request.json()
+        prompt = str(body.get("prompt", "")).strip()
+        if not prompt:
+            return JSONResponse({"error": "Prompt cannot be empty."}, status_code=400)
+
+        task_id = str(body.get("task_id", "studio-default"))
+        task_type = TaskType(str(body.get("task_type", TaskType.GENERATE.value)))
+        model_override = str(body.get("model") or "").strip() or None
+        exporter = AegisTelemetryExporter(cfg, store, http_client=telemetry_http_client)
+
+        # 1. Prompt-injection defence
+        inj = scan_for_prompt_injection(prompt, source="coding-studio", audit=audit, config=cfg, task_id=task_id)
+        if inj.flagged:
+            exporter.emit(
+                HarnessEvent(
+                    event_type=HarnessEventType.INCIDENT,
+                    task_id=task_id,
+                    actor="human:studio",
+                    repository=cfg.project.name,
+                    risk_tier=cfg.policy.default_risk_tier.value,
+                    policy_version=cfg.policy.version,
+                    data_classification=cfg.project.data_classification.value,
+                    outcome="blocked",
+                    details={
+                        "violation_type": "PROMPT_INJECTION",
+                        "severity": "HIGH",
+                        "description": f"Prompt injection blocked in Coding Studio ({inj.findings[0].rule})",
+                    },
+                )
+            )
+            return JSONResponse(
+                {"error": f"Blocked by prompt-injection defence ({inj.findings[0].rule})."},
+                status_code=403,
+            )
+
+        # 2. Policy check on requested model
+        engine = PolicyEngine(cfg, audit, store)
+        if model_override:
+            pol_dec = engine.evaluate_model(model_override, task_id=task_id, actor="human:studio")
+            if pol_dec.outcome == PolicyOutcome.DENY:
+                return JSONResponse({"error": pol_dec.reason}, status_code=403)
+
+        # 3. Model Gateway invocation (redaction, cost ceiling, fallback, audit)
+        gw = ModelGateway(cfg, audit, workspace_root=root, http_client=gateway_http_client)
+        try:
+            result = gw.complete(
+                prompt=prompt,
+                task_type=task_type,
+                task_id=task_id,
+                actor="human:studio",
+                model_override=model_override,
+            )
+        except GatewayError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+        # 4. Emit Aegis OTLP telemetry (queued in SQLite if offline)
+        tail_hash = audit.verify().head_hash
+        exporter.emit(
+            HarnessEvent(
+                event_type=HarnessEventType.MODEL_CALL,
+                task_id=task_id,
+                actor="human:studio",
+                repository=cfg.project.name,
+                model=result.record.model,
+                risk_tier=cfg.policy.default_risk_tier.value,
+                policy_version=cfg.policy.version,
+                data_classification=cfg.project.data_classification.value,
+                outcome="allow",
+                prev_hash=tail_hash,
+                details={
+                    "provider": result.record.provider,
+                    "input_tokens": result.record.input_tokens,
+                    "output_tokens": result.record.output_tokens,
+                    "cost_usd": result.record.cost_usd,
+                    "latency_ms": result.record.latency_ms,
+                    "redacted_categories": result.record.redacted_categories,
+                },
+            )
+        )
+
+        return JSONResponse(
+            {
+                "content": result.response.content,
+                "model": result.record.model,
+                "provider": result.record.provider,
+                "total_tokens": result.record.total_tokens,
+                "cost_usd": result.record.cost_usd,
+                "redacted_categories": result.record.redacted_categories,
+                "audit_hash": tail_hash,
+                "telemetry_queue": store.telemetry_queue_counts(),
+            }
+        )
+
+    @app.post("/api/studio/check")
+    async def studio_check(request: Request) -> JSONResponse:
+        cfg, root, audit, store = _ctx()
+        body = await request.json()
+        task_id = str(body.get("task_id", "studio-default"))
+        runner = GateRunner(cfg, audit, root)
+        report = runner.run_all(task_id=task_id, run_pytest=False)
+        exporter = AegisTelemetryExporter(cfg, store, http_client=telemetry_http_client)
+        exporter.emit(
+            HarnessEvent(
+                event_type=HarnessEventType.CHECK_PASS if report.passed else HarnessEventType.CHECK_FAIL,
+                task_id=task_id,
+                actor="human:studio",
+                repository=cfg.project.name,
+                policy_version=cfg.policy.version,
+                data_classification=cfg.project.data_classification.value,
+                outcome="pass" if report.passed else "fail",
+                details={"summary": f"Studio gate run: passed={report.passed}"},
+            )
+        )
+        return JSONResponse(report.model_dump())
+
+    @app.post("/api/studio/killswitch")
+    async def studio_killswitch() -> JSONResponse:
+        cfg, root, audit, store = _ctx()
+        mgr = SandboxManager(cfg, audit, store, root)
+        summary = mgr.activate_killswitch(reason="Coding Studio emergency halt")
+        exporter = AegisTelemetryExporter(cfg, store, http_client=telemetry_http_client)
+        exporter.emit(
+            HarnessEvent(
+                event_type=HarnessEventType.KILL_SWITCH,
+                actor="human:studio",
+                repository=cfg.project.name,
+                policy_version=cfg.policy.version,
+                data_classification=cfg.project.data_classification.value,
+                outcome="halted",
+                details={"reason": "Coding Studio emergency halt"},
+            )
+        )
+        return JSONResponse(summary)
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard_home(msg: Optional[str] = None, err: Optional[str] = None) -> str:
