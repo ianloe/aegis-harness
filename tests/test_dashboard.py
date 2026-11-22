@@ -292,4 +292,4 @@ def test_config_secrets_updates_env_in_memory_without_writing_to_disk(tmp_path: 
     assert "secret-agnes-value-999" not in (tmp_path / cfg.audit.log_path).read_text(encoding="utf-8")
     cfg_html = client.get("/config").text
     assert "secret-agnes-value-999" not in cfg_html
-    assert "configured" in cfg_html
+    assert 'badge-ok">configured' in cfg_html

@@ -152,7 +152,7 @@ def _page_shell(title: str, active: str, body: str, *, show_nav: bool = True) ->
 
 def _outcome_badge(outcome: str) -> str:
     low = outcome.lower()
-    if low in ("allow", "pass", "success", "approved", "active", "verified"):
+    if low in ("allow", "pass", "success", "approved", "active", "verified", "configured"):
         return f'<span class="badge badge-ok">{html.escape(outcome)}</span>'
     if low in ("require_approval", "pending", "restricted"):
         return f'<span class="badge badge-warn">{html.escape(outcome)}</span>'
