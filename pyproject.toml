@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis-harness"
+version = "0.1.0"
+description = "Security-first and governance-first wrapper for AI-assisted coding, integrated with Aegis."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.10",
+    "pyyaml>=6.0",
+    "typer>=0.15",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+harness = "harness.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
