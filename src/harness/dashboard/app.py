@@ -911,6 +911,22 @@ def create_dashboard_app(
         elif err:
             banner = f'<div class="banner banner-err">{html.escape(err)}</div>'
 
+        secret_vars = [
+            (cfg.aegis.token_env_var, "Aegis Telemetry Bearer Token"),
+            ("ANTHROPIC_API_KEY", "Anthropic API Key (Claude)"),
+            ("OPENAI_API_KEY", "OpenAI API Key (GPT)"),
+            ("GEMINI_API_KEY", "Google Gemini API Key"),
+            ("AGNES_API_KEY", "Agnes AI API Key"),
+        ]
+        secret_rows = "".join(
+            f"""
+            <div class="form-row">
+              <label>{html.escape(label)} (<code>{html.escape(var)}</code>) {_outcome_badge("configured" if os.environ.get(var) else "not set")}</label>
+              <input type="password" name="secret_{html.escape(var)}" placeholder="Leave blank to keep existing value" autocomplete="off" />
+            </div>"""
+            for var, label in secret_vars
+        )
+
         class_options = "".join(
             f'<option value="{dc.value}" {"selected" if cfg.project.data_classification == dc else ""}>{dc.value}</option>'
             for dc in DataClassification
@@ -1111,6 +1127,15 @@ def create_dashboard_app(
 
           <button type="submit">Save Configuration</button>
         </form>
+
+        <form method="post" action="/config/secrets" style="margin-top:24px;">
+          <div class="card">
+            <h2>6. Session API Keys &amp; Credentials (In-Memory Only)</h2>
+            <p class="help">Set or update provider API keys and your Aegis token for the running web app session. Keys are held in memory only and are never written to disk, config files, or audit logs.</p>
+            {secret_rows}
+            <button type="submit">Update Session Keys</button>
+          </div>
+        </form>
         """
         return _page_shell("Configuration", "config", body)
 
@@ -1177,6 +1202,35 @@ def create_dashboard_app(
             return RedirectResponse(url="/config?saved=1", status_code=303)
         except Exception as exc:
             return RedirectResponse(url=f"/config?err={html.escape(str(exc))}", status_code=303)
+
+    @app.post("/config/secrets")
+    async def save_session_secrets(request: Request) -> RedirectResponse:
+        cfg, _root, audit, _store = _ctx()
+        form = await request.form()
+        updated_vars: List[str] = []
+        allowed_vars = {
+            cfg.aegis.token_env_var,
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "AGNES_API_KEY",
+        }
+        for var in allowed_vars:
+            val = str(form.get(f"secret_{var}", "")).strip()
+            if val:
+                os.environ[var] = val
+                updated_vars.append(var)
+
+        if updated_vars:
+            audit.append(
+                event_type="session_keys_updated",
+                actor="human:webapp",
+                repository=cfg.project.name,
+                policy_version=cfg.policy.version,
+                data_classification=cfg.project.data_classification.value,
+                details={"updated_env_vars": sorted(updated_vars)},
+            )
+        return RedirectResponse(url="/config?saved=1", status_code=303)
 
     @app.get("/manual", response_class=HTMLResponse)
     async def user_manual() -> str:

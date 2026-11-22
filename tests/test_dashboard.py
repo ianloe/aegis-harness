@@ -270,3 +270,26 @@ def test_dashboard_authentication_blocks_unauthenticated_and_allows_login(tmp_pa
     out = client.post("/logout", follow_redirects=False)
     assert out.status_code == 303
     assert client.get("/", follow_redirects=False).status_code == 303
+
+
+def test_config_secrets_updates_env_in_memory_without_writing_to_disk(tmp_path: Path, monkeypatch) -> None:
+    import os
+
+    monkeypatch.delenv("AGNES_API_KEY", raising=False)
+    cfg_path, cfg, _ = init_workspace(root=tmp_path, project_name="sec-ui", asset_code="AI-001")
+    client = TestClient(create_dashboard_app(cfg_path, auth_enabled=False))
+
+    resp = client.post(
+        "/config/secrets",
+        data={"secret_AGNES_API_KEY": "secret-agnes-value-999"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert os.environ.get("AGNES_API_KEY") == "secret-agnes-value-999"
+
+    # Secret must never be written to config.yaml, audit.jsonl, or HTML output
+    assert "secret-agnes-value-999" not in cfg_path.read_text(encoding="utf-8")
+    assert "secret-agnes-value-999" not in (tmp_path / cfg.audit.log_path).read_text(encoding="utf-8")
+    cfg_html = client.get("/config").text
+    assert "secret-agnes-value-999" not in cfg_html
+    assert "configured" in cfg_html
