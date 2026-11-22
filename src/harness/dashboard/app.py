@@ -199,6 +199,37 @@ def _verify_session_cookie(cookie_val: Optional[str], token: str) -> bool:
     return hmac.compare_digest(sig, expected)
 
 
+def _load_dotenv(env_path: Path) -> None:
+    """Load key=value pairs from a gitignored `.env` file without overwriting existing env vars."""
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        key = k.strip()
+        val = v.strip().strip("'").strip('"')
+        if key:
+            os.environ.setdefault(key, val)
+
+
+def _update_dotenv(env_path: Path, updates: Dict[str, str]) -> None:
+    """Persist updated key=value pairs to a gitignored `.env` file with 0600 permissions."""
+    existing: Dict[str, str] = {}
+    if env_path.exists():
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            existing[k.strip()] = v.strip().strip("'").strip('"')
+    existing.update(updates)
+    lines = [f"{k}={v}" for k, v in sorted(existing.items())]
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(env_path, 0o600)
+
+
 def create_dashboard_app(
     config_path: Path,
     *,
@@ -209,6 +240,8 @@ def create_dashboard_app(
 ) -> FastAPI:
     """Create the FastAPI local dashboard, coding studio, and form-based configuration webapp."""
     app = FastAPI(title="Aegis Harness Dashboard", version="0.1.0")
+    init_root = config_path.parent.parent if config_path.parent.name == ".harness" else config_path.parent
+    _load_dotenv(init_root / ".env")
 
     def _ctx():
         cfg = load_config(config_path)
@@ -1130,10 +1163,10 @@ def create_dashboard_app(
 
         <form method="post" action="/config/secrets" style="margin-top:24px;">
           <div class="card">
-            <h2>6. Session API Keys &amp; Credentials (In-Memory Only)</h2>
-            <p class="help">Set or update provider API keys and your Aegis token for the running web app session. Keys are held in memory only and are never written to disk, config files, or audit logs.</p>
+            <h2>6. API Keys &amp; Credentials (Saved to <code>.env</code>)</h2>
+            <p class="help">Set or update provider API keys and your Aegis token. Keys are saved to the gitignored <code>.env</code> file (0600 permissions) and loaded into memory immediately; they are never written to <code>config.yaml</code> or audit logs.</p>
             {secret_rows}
-            <button type="submit">Update Session Keys</button>
+            <button type="submit">Save API Keys</button>
           </div>
         </form>
         """
@@ -1205,9 +1238,9 @@ def create_dashboard_app(
 
     @app.post("/config/secrets")
     async def save_session_secrets(request: Request) -> RedirectResponse:
-        cfg, _root, audit, _store = _ctx()
+        cfg, root, audit, _store = _ctx()
         form = await request.form()
-        updated_vars: List[str] = []
+        updated_vars: Dict[str, str] = {}
         allowed_vars = {
             cfg.aegis.token_env_var,
             "ANTHROPIC_API_KEY",
@@ -1219,16 +1252,17 @@ def create_dashboard_app(
             val = str(form.get(f"secret_{var}", "")).strip()
             if val:
                 os.environ[var] = val
-                updated_vars.append(var)
+                updated_vars[var] = val
 
         if updated_vars:
+            _update_dotenv(root / ".env", updated_vars)
             audit.append(
-                event_type="session_keys_updated",
+                event_type="api_keys_updated",
                 actor="human:webapp",
                 repository=cfg.project.name,
                 policy_version=cfg.policy.version,
                 data_classification=cfg.project.data_classification.value,
-                details={"updated_env_vars": sorted(updated_vars)},
+                details={"updated_env_vars": sorted(updated_vars.keys())},
             )
         return RedirectResponse(url="/config?saved=1", status_code=303)
 
