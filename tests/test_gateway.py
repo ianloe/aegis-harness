@@ -44,7 +44,7 @@ def test_switching_providers_with_no_code_change(tmp_path: Path, monkeypatch) ->
             return httpx.Response(
                 200,
                 json={
-                    "model": "claude-3-7-sonnet",
+                    "model": "claude-4-sonnet",
                     "content": [{"type": "text", "text": "anthropic ok"}],
                     "usage": {"input_tokens": 100, "output_tokens": 50},
                 },
@@ -53,7 +53,7 @@ def test_switching_providers_with_no_code_change(tmp_path: Path, monkeypatch) ->
             return httpx.Response(
                 200,
                 json={
-                    "model": "gpt-4o",
+                    "model": "gpt-5",
                     "choices": [{"message": {"content": "openai ok"}}],
                     "usage": {"prompt_tokens": 120, "completion_tokens": 60},
                 },
@@ -62,7 +62,7 @@ def test_switching_providers_with_no_code_change(tmp_path: Path, monkeypatch) ->
             return httpx.Response(
                 200,
                 json={
-                    "modelVersion": "gemini-2.5-pro",
+                    "modelVersion": "gemini-4-hydrogen",
                     "candidates": [{"content": {"parts": [{"text": "gemini ok"}]}}],
                     "usageMetadata": {"promptTokenCount": 80, "candidatesTokenCount": 40},
                 },
@@ -80,7 +80,7 @@ def test_switching_providers_with_no_code_change(tmp_path: Path, monkeypatch) ->
         return httpx.Response(
             200,
             json={
-                "model": "qwen2.5-coder:14b",
+                "model": "qwen3-coder:14b",
                 "choices": [{"message": {"content": "ollama ok"}}],
                 "usage": {"prompt_tokens": 90, "completion_tokens": 30},
             },
@@ -90,11 +90,11 @@ def test_switching_providers_with_no_code_change(tmp_path: Path, monkeypatch) ->
     audit = AuditChain(tmp_path / "audit.jsonl")
     gw = ModelGateway(cfg, audit, workspace_root=tmp_path, http_client=_mock_transport(handler))
 
-    r1 = gw.complete(prompt="Write hello world", model_override="claude-3-7-sonnet", task_id="t1")
-    r2 = gw.complete(prompt="Write hello world", model_override="gpt-4o", task_id="t1")
-    r3 = gw.complete(prompt="Write hello world", model_override="gemini-2.5-pro", task_id="t1")
+    r1 = gw.complete(prompt="Write hello world", model_override="claude-4-sonnet", task_id="t1")
+    r2 = gw.complete(prompt="Write hello world", model_override="gpt-5", task_id="t1")
+    r3 = gw.complete(prompt="Write hello world", model_override="gemini-4-hydrogen", task_id="t1")
     r4 = gw.complete(prompt="Write hello world", model_override="agnes-coder", task_id="t1")
-    r5 = gw.complete(prompt="Write hello world", model_override="qwen2.5-coder:14b", task_id="t1")
+    r5 = gw.complete(prompt="Write hello world", model_override="qwen3-coder:14b", task_id="t1")
 
     assert r1.record.provider == "anthropic"
     assert r2.record.provider == "openai"
@@ -114,7 +114,7 @@ def test_prompt_secret_redacted_before_outbound_call_and_not_in_audit(tmp_path: 
         return httpx.Response(
             200,
             json={
-                "model": "gpt-4o",
+                "model": "gpt-5",
                 "choices": [{"message": {"content": "done"}}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
             },
@@ -125,7 +125,7 @@ def test_prompt_secret_redacted_before_outbound_call_and_not_in_audit(tmp_path: 
     gw = ModelGateway(cfg, audit, workspace_root=tmp_path, http_client=_mock_transport(handler))
 
     fake_secret = "ghp_1234567890abcdefghijklmnopqrstuv"
-    result = gw.complete(prompt=f"Use token {fake_secret}", model_override="gpt-4o", task_id="t2")
+    result = gw.complete(prompt=f"Use token {fake_secret}", model_override="gpt-5", task_id="t2")
 
     sent_content = captured_body["messages"][-1]["content"]
     assert fake_secret not in sent_content
@@ -147,7 +147,7 @@ def test_fallback_on_primary_failure(tmp_path: Path, monkeypatch) -> None:
         return httpx.Response(
             200,
             json={
-                "model": "gpt-4o",
+                "model": "gpt-5",
                 "choices": [{"message": {"content": "fallback ok"}}],
                 "usage": {"prompt_tokens": 20, "completion_tokens": 10},
             },
@@ -158,7 +158,7 @@ def test_fallback_on_primary_failure(tmp_path: Path, monkeypatch) -> None:
     gw = ModelGateway(cfg, audit, workspace_root=tmp_path, http_client=_mock_transport(handler))
 
     res = gw.complete(prompt="Generate tests", task_type=TaskType.GENERATE, task_id="t3")
-    assert res.record.model == "gpt-4o"
+    assert res.record.model == "gpt-5"
     assert res.record.fallback_used is True
 
 
@@ -174,7 +174,7 @@ def test_restricted_repo_blocks_cloud_models(tmp_path: Path, monkeypatch) -> Non
     gw = ModelGateway(cfg, audit, workspace_root=tmp_path, http_client=_mock_transport(handler))
 
     with pytest.raises(GatewayError, match="restricted"):
-        gw.complete(prompt="Hello", model_override="gpt-4o", task_id="t4")
+        gw.complete(prompt="Hello", model_override="gpt-5", task_id="t4")
 
 
 def test_encrypted_body_storage_when_enabled(tmp_path: Path, monkeypatch) -> None:
@@ -184,7 +184,7 @@ def test_encrypted_body_storage_when_enabled(tmp_path: Path, monkeypatch) -> Non
         return httpx.Response(
             200,
             json={
-                "model": "gpt-4o",
+                "model": "gpt-5",
                 "choices": [{"message": {"content": "secret response text"}}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
             },
@@ -195,7 +195,7 @@ def test_encrypted_body_storage_when_enabled(tmp_path: Path, monkeypatch) -> Non
     audit = AuditChain(tmp_path / "audit.jsonl")
     gw = ModelGateway(cfg, audit, workspace_root=tmp_path, http_client=_mock_transport(handler))
 
-    res = gw.complete(prompt="sensitive prompt", model_override="gpt-4o", task_id="t5")
+    res = gw.complete(prompt="sensitive prompt", model_override="gpt-5", task_id="t5")
     assert res.record.encrypted_body_path is not None
     enc_bytes = Path(res.record.encrypted_body_path).read_bytes()
     assert b"sensitive prompt" not in enc_bytes

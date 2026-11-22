@@ -6,13 +6,17 @@ from typing import Dict, Tuple
 
 # (input_usd_per_1m_tokens, output_usd_per_1m_tokens)
 MODEL_PRICING_USD_PER_1M: Dict[str, Tuple[float, float]] = {
+    "claude-4-sonnet": (3.00, 15.00),
     "claude-3-7-sonnet": (3.00, 15.00),
     "claude-3-5-sonnet": (3.00, 15.00),
+    "gpt-5": (2.50, 10.00),
     "gpt-4o": (2.50, 10.00),
     "gpt-4o-mini": (0.15, 0.60),
+    "gemini-4-hydrogen": (1.25, 10.00),
     "gemini-2.5-pro": (1.25, 10.00),
     "gemini-2.5-flash": (0.15, 0.60),
     "agnes-coder": (1.50, 6.00),
+    "qwen3-coder:14b": (0.0, 0.0),
     "qwen2.5-coder:14b": (0.0, 0.0),
     "llama3.1:8b": (0.0, 0.0),
 }

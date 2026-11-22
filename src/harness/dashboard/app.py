@@ -1290,11 +1290,11 @@ git push -u origin main</code></pre>
           <table>
             <thead><tr><th>Provider</th><th>Example Model</th><th>API Key Env Var</th><th>Notes</th></tr></thead>
             <tbody>
-              <tr><td>Anthropic</td><td><code>claude-3-7-sonnet</code></td><td><code>ANTHROPIC_API_KEY</code></td><td>Cloud reasoning and coding</td></tr>
-              <tr><td>OpenAI</td><td><code>gpt-4o</code></td><td><code>OPENAI_API_KEY</code></td><td>General coding</td></tr>
-              <tr><td>Google Gemini</td><td><code>gemini-2.5-pro</code></td><td><code>GEMINI_API_KEY</code></td><td>Code review and analysis</td></tr>
+              <tr><td>Anthropic</td><td><code>claude-4-sonnet</code></td><td><code>ANTHROPIC_API_KEY</code></td><td>Cloud reasoning and coding</td></tr>
+              <tr><td>OpenAI</td><td><code>gpt-5</code></td><td><code>OPENAI_API_KEY</code></td><td>General coding</td></tr>
+              <tr><td>Google Gemini</td><td><code>gemini-4-hydrogen</code></td><td><code>GEMINI_API_KEY</code></td><td>Code review and analysis</td></tr>
               <tr><td>Agnes AI</td><td><code>agnes-coder</code></td><td><code>AGNES_API_KEY</code></td><td>OpenAI-compatible coding endpoint</td></tr>
-              <tr><td>Ollama (Local)</td><td><code>qwen2.5-coder:14b</code></td><td>None</td><td>Required for <code>restricted</code> repositories</td></tr>
+              <tr><td>Ollama (Local)</td><td><code>qwen3-coder:14b</code></td><td>None</td><td>Required for <code>restricted</code> repositories</td></tr>
             </tbody>
           </table>
           <p>Use <code>harness model list</code> to view permitted models and <code>harness model use &lt;name&gt;</code> to switch models without changing your workflow.</p>

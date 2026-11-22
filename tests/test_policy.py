@@ -25,7 +25,7 @@ def test_model_tool_and_command_policies_logged(tmp_path: Path) -> None:
     audit = AuditChain(tmp_path / "audit.jsonl")
     engine = PolicyEngine(cfg, audit)
 
-    d_model_ok = engine.evaluate_model("claude-3-7-sonnet", task_id="t1")
+    d_model_ok = engine.evaluate_model("claude-4-sonnet", task_id="t1")
     d_model_bad = engine.evaluate_model("unapproved-model", task_id="t1")
     d_tool_bad = engine.evaluate_tool("curl_exfiltrate", task_id="t1")
     d_cmd_ok = engine.evaluate_command("pytest -v", task_id="t1")
@@ -77,7 +77,7 @@ def test_high_risk_merge_requires_distinct_second_person_approvals(tmp_path: Pat
         risk_tier="high",
         branch="agent/task-hi",
         requester="alice@example.com",
-        active_model="claude-3-7-sonnet",
+        active_model="claude-4-sonnet",
         now_iso=utc_now_iso(),
     )
 

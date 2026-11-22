@@ -148,21 +148,21 @@ class GatewayConfig(BaseModel):
     """Model Gateway controls, redaction, and routing configuration."""
 
     default_model: str = Field(
-        default="claude-3-7-sonnet",
+        default="claude-4-sonnet",
         description="Default model used when no task-specific routing rule matches.",
     )
     allowed_models: List[str] = Field(
         default_factory=lambda: [
-            "claude-3-7-sonnet",
-            "gpt-4o",
-            "gemini-2.5-pro",
+            "claude-4-sonnet",
+            "gpt-5",
+            "gemini-4-hydrogen",
             "agnes-coder",
-            "qwen2.5-coder:14b",
+            "qwen3-coder:14b",
         ],
         description="Project-wide allow-list of approved models.",
     )
     restricted_allowed_models: List[str] = Field(
-        default_factory=lambda: ["qwen2.5-coder:14b"],
+        default_factory=lambda: ["qwen3-coder:14b"],
         description="Strict allow-list enforced when the repository data classification is 'restricted'.",
     )
     cost_ceiling_usd_per_task: float = Field(
@@ -188,21 +188,21 @@ class GatewayConfig(BaseModel):
                 name="anthropic",
                 kind="anthropic",
                 api_key_env_var="ANTHROPIC_API_KEY",
-                models=["claude-3-7-sonnet"],
+                models=["claude-4-sonnet"],
                 is_local=False,
             ),
             ProviderConfig(
                 name="openai",
                 kind="openai",
                 api_key_env_var="OPENAI_API_KEY",
-                models=["gpt-4o"],
+                models=["gpt-5"],
                 is_local=False,
             ),
             ProviderConfig(
                 name="gemini",
                 kind="gemini",
                 api_key_env_var="GEMINI_API_KEY",
-                models=["gemini-2.5-pro"],
+                models=["gemini-4-hydrogen"],
                 is_local=False,
             ),
             ProviderConfig(
@@ -218,7 +218,7 @@ class GatewayConfig(BaseModel):
                 kind="openai_compatible",
                 base_url="http://localhost:11434/v1",
                 api_key_env_var=None,
-                models=["qwen2.5-coder:14b"],
+                models=["qwen3-coder:14b"],
                 is_local=True,
             ),
         ],
@@ -228,20 +228,20 @@ class GatewayConfig(BaseModel):
         default_factory=lambda: [
             RoutingRule(
                 task_type=TaskType.PLAN,
-                primary_model="claude-3-7-sonnet",
-                fallback_models=["gemini-2.5-pro", "qwen2.5-coder:14b"],
+                primary_model="claude-4-sonnet",
+                fallback_models=["gemini-4-hydrogen", "qwen3-coder:14b"],
                 max_cost_usd=1.0,
             ),
             RoutingRule(
                 task_type=TaskType.GENERATE,
-                primary_model="claude-3-7-sonnet",
-                fallback_models=["gpt-4o", "qwen2.5-coder:14b"],
+                primary_model="claude-4-sonnet",
+                fallback_models=["gpt-5", "qwen3-coder:14b"],
                 max_cost_usd=2.0,
             ),
             RoutingRule(
                 task_type=TaskType.REVIEW,
-                primary_model="gemini-2.5-pro",
-                fallback_models=["claude-3-7-sonnet", "qwen2.5-coder:14b"],
+                primary_model="gemini-4-hydrogen",
+                fallback_models=["claude-4-sonnet", "qwen3-coder:14b"],
                 max_cost_usd=1.0,
             ),
         ],

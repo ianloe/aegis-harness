@@ -22,7 +22,8 @@ def test_cli_init_task_model_audit_killswitch(tmp_path: Path, monkeypatch) -> No
 
     res_models = runner.invoke(app, ["model", "list"])
     assert res_models.exit_code == 0
-    assert "claude-3-7-sonnet" in res_models.stdout
+    assert "claude-4-sonnet" in res_models.stdout
+    assert "gemini-4-hydrogen" in res_models.stdout
 
     res_verify = runner.invoke(app, ["audit", "verify"])
     assert res_verify.exit_code == 0
