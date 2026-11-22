@@ -140,3 +140,8 @@ def test_user_manual_page_renders_guides(tmp_path: Path) -> None:
     assert "Aegis Harness User Manual" in resp.text
     assert "Agnes AI" in resp.text
     assert "CLI Command Reference" in resp.text
+    assert "/assets/logo.png" in resp.text
+
+    logo_resp = client.get("/assets/logo.png")
+    assert logo_resp.status_code == 200
+    assert logo_resp.headers["content-type"] == "image/png"

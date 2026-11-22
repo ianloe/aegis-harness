@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from harness.audit.chain import AuditChain
 from harness.audit.store import StateStore
@@ -35,6 +35,8 @@ BASE_CSS = """
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
 header { background: #020617; border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
 header h1 { margin: 0; font-size: 1.15rem; letter-spacing: 0.02em; }
+.brand-logo { background: #ffffff; padding: 6px 12px; border-radius: 8px; display: inline-flex; align-items: center; }
+.brand-logo img { height: 36px; width: auto; display: block; }
 nav a { color: var(--muted); text-decoration: none; margin-left: 18px; font-weight: 500; }
 nav a.active, nav a:hover { color: var(--accent); }
 main { max-width: 1180px; margin: 24px auto; padding: 0 20px 48px; }
@@ -79,7 +81,9 @@ def _page_shell(title: str, active: str, body: str) -> str:
 </head>
 <body>
 <header>
-  <h1>Aegis Harness Governance</h1>
+  <a href="/" class="brand-logo" aria-label="Aegis Harness Home">
+    <img src="/assets/logo.png" alt="Aegis Harness Logo" />
+  </a>
   <nav>
     <a href="/" {nav_dash}>Dashboard</a>
     <a href="/config" {nav_cfg}>Configuration</a>
@@ -115,6 +119,11 @@ def create_dashboard_app(config_path: Path) -> FastAPI:
         audit = AuditChain(root / cfg.audit.log_path, root / cfg.audit.checkpoint_dir)
         store = StateStore(root / cfg.audit.state_db_path)
         return cfg, root, audit, store
+
+    @app.get("/assets/logo.png")
+    async def logo_asset() -> FileResponse:
+        logo_path = Path(__file__).resolve().parent / "static" / "aegis-harness-logo.png"
+        return FileResponse(logo_path, media_type="image/png")
 
     @app.get("/api/metrics")
     async def api_metrics() -> JSONResponse:

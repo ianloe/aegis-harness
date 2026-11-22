@@ -1,3 +1,5 @@
+![Aegis Harness](docs/assets/aegis-harness-logo.png)
+
 # Aegis Harness
 
 **Aegis Harness** is a security-first and governance-first wrapper for AI-assisted coding. It sits between developers, coding models, and Git so that every model call, file change, and commit is policy-checked, logged to a tamper-evident audit chain, and emitted as telemetry to **Aegis**.
