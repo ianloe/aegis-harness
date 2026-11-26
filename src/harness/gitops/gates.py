@@ -53,7 +53,12 @@ class GateRunner:
 
     def _iter_source_files(self, paths: Optional[List[str]] = None) -> List[Path]:
         if paths is not None:
-            return [self.root / p for p in paths if (self.root / p).is_file()]
+            safe_paths: List[Path] = []
+            for p in paths:
+                resolved = (self.root / p).resolve()
+                if resolved.is_relative_to(self.root) and resolved.is_file():
+                    safe_paths.append(resolved)
+            return safe_paths
         ignored = {".git", ".venv", "__pycache__", ".pytest_cache", ".harness", "node_modules"}
         out: List[Path] = []
         for item in self.root.rglob("*"):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import time
@@ -53,6 +54,8 @@ class SandboxManager:
 
     def prepare_worktree(self, task_id: str) -> Path:
         """Create or reuse an isolated Git worktree for `agent/<task-id>`."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
+            raise SandboxError(f"Invalid task_id '{task_id}': must match [A-Za-z0-9_-]{{1,64}}.")
         branch = f"{self.config.git.branch_prefix}{task_id}"
         wt_path = self.root / ".harness" / "worktrees" / task_id
         if wt_path.exists():
@@ -99,6 +102,9 @@ class SandboxManager:
                 "docker",
                 "run",
                 "--rm",
+                "--cap-drop=ALL",
+                "--security-opt=no-new-privileges:true",
+                "--pids-limit=64",
                 "--name",
                 container_name,
                 "--cpus",

@@ -89,10 +89,12 @@ def test_kill_switch_halts_active_agent_session_within_5_seconds(tmp_path: Path)
     )
     tok = mgr.tokens.issue(task_id="task-run", scopes=["model:call"])
 
+    sleeper = tmp_path / "sleeper.py"
+    sleeper.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
     proc = mgr.start_background_command(
         session_id="sess-run",
         task_id="task-run",
-        command=[sys.executable, "-c", "import time; time.sleep(60)"],
+        command=[sys.executable, str(sleeper)],
     )
     assert proc.poll() is None
 

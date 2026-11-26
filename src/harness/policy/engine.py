@@ -6,6 +6,8 @@ against the active HarnessConfig, recording every decision in the audit chain.
 
 from __future__ import annotations
 
+import posixpath
+import re
 from enum import Enum
 from fnmatch import fnmatch
 from typing import Dict, List, Optional
@@ -189,10 +191,26 @@ class PolicyEngine:
         session_id: str = "no-session",
         actor: str = "agent:harness",
     ) -> PolicyDecision:
-        """Check whether a shell command matches an allow-listed command prefix."""
+        """Check whether a shell command is safe and matches an allow-listed command prefix."""
         tier = risk_tier or self.config.policy.default_risk_tier
         version = self.config.policy.version
         normalised = command.strip()
+
+        if re.search(r"[;&|`><\r\n]|\$\(", normalised):
+            return self._record(
+                PolicyDecision(
+                    outcome=PolicyOutcome.DENY,
+                    policy_version=version,
+                    rule_id="command.shell_metacharacter",
+                    reason="Command contains disallowed shell metacharacters or chaining operators.",
+                    risk_tier=tier,
+                    details={"command": normalised},
+                ),
+                task_id=task_id,
+                session_id=session_id,
+                actor=actor,
+            )
+
         allowed = any(
             normalised == prefix or normalised.startswith(f"{prefix} ")
             for prefix in self.config.policy.allowed_commands
@@ -240,9 +258,29 @@ class PolicyEngine:
         version = self.config.policy.version
         tier_cfg = self.config.policy.risk_tiers[tier]
 
+        normalised_paths: List[str] = []
+        for raw_path in changed_paths:
+            cleaned = raw_path.replace("\\", "/").strip()
+            norm = posixpath.normpath(cleaned)
+            if posixpath.isabs(cleaned) or norm == ".." or norm.startswith("../"):
+                return self._record(
+                    PolicyDecision(
+                        outcome=PolicyOutcome.DENY,
+                        policy_version=version,
+                        rule_id="paths.traversal_denied",
+                        reason=f"Path traversal or absolute path is not permitted: '{raw_path}'.",
+                        risk_tier=tier,
+                        details={"path": raw_path},
+                    ),
+                    task_id=task_id,
+                    session_id=session_id,
+                    actor=actor,
+                )
+            normalised_paths.append(norm)
+
         matched_restricted = [
             path
-            for path in changed_paths
+            for path in normalised_paths
             if any(fnmatch(path, pattern) for pattern in self.config.policy.restricted_paths)
         ]
         if matched_restricted:

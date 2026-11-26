@@ -11,6 +11,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -234,6 +235,9 @@ def _update_dotenv(env_path: Path, updates: Dict[str, str]) -> None:
             k, v = line.split("=", 1)
             existing[k.strip()] = v.strip().strip("'").strip('"')
     existing.update(updates)
+    for k, v in existing.items():
+        if "\n" in k or "\r" in k or "\n" in v or "\r" in v:
+            raise ValueError("Environment keys and values must not contain newline characters.")
     lines = [f"{k}={v}" for k, v in sorted(existing.items())]
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.chmod(env_path, 0o600)
@@ -259,15 +263,24 @@ def create_dashboard_app(
         store = StateStore(root / cfg.audit.state_db_path)
         return cfg, root, audit, store
 
+    failed_logins: Dict[str, List[float]] = defaultdict(list)
+
     @app.middleware("http")
-    async def auth_middleware(request: Request, call_next):
+    async def security_and_auth_middleware(request: Request, call_next):
         cfg, root, _audit, _store = _ctx()
         enabled = cfg.dashboard.auth_enabled if auth_enabled is None else auth_enabled
-        if not enabled:
-            return await call_next(request)
-
         path = request.url.path
-        if path in (
+
+        # CSRF protection: for cookie-authenticated state-changing requests, verify Origin/Referer matches Host
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and not request.headers.get("authorization", "").startswith("Bearer "):
+            host = request.headers.get("host", "")
+            origin = request.headers.get("origin") or request.headers.get("referer")
+            if origin and host:
+                parsed_origin = urlparse(origin)
+                if parsed_origin.netloc and parsed_origin.netloc != host:
+                    return JSONResponse({"error": "Cross-origin request rejected."}, status_code=403)
+
+        if not enabled or path in (
             "/login",
             "/logout",
             "/manifest.webmanifest",
@@ -277,23 +290,30 @@ def create_dashboard_app(
             "/assets/icon-512.png",
             "/assets/apple-touch-icon.png",
         ):
-            return await call_next(request)
+            response = await call_next(request)
+        else:
+            expected_token = _resolve_dashboard_token(cfg, root, override_token=auth_token)
+            cookie_ok = _verify_session_cookie(request.cookies.get("harness_session"), expected_token)
 
-        expected_token = _resolve_dashboard_token(cfg, root, override_token=auth_token)
-        cookie_ok = _verify_session_cookie(request.cookies.get("harness_session"), expected_token)
+            auth_header = request.headers.get("authorization", "")
+            bearer_ok = False
+            if auth_header.startswith("Bearer "):
+                provided = auth_header[7:].strip()
+                bearer_ok = hmac.compare_digest(provided, expected_token)
 
-        auth_header = request.headers.get("authorization", "")
-        bearer_ok = False
-        if auth_header.startswith("Bearer "):
-            provided = auth_header[7:].strip()
-            bearer_ok = hmac.compare_digest(provided, expected_token)
+            if cookie_ok or bearer_ok:
+                response = await call_next(request)
+            elif path.startswith("/api/"):
+                response = JSONResponse({"error": "Authentication required."}, status_code=401)
+            else:
+                response = RedirectResponse(url="/login", status_code=303)
 
-        if cookie_ok or bearer_ok:
-            return await call_next(request)
-
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
         if path.startswith("/api/"):
-            return JSONResponse({"error": "Authentication required."}, status_code=401)
-        return RedirectResponse(url="/login", status_code=303)
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(err: Optional[str] = None) -> str:
@@ -315,13 +335,33 @@ def create_dashboard_app(
         return _page_shell("Sign In", "login", body, show_nav=False)
 
     @app.post("/login")
-    async def login_submit(token: str = Form(...)):
+    async def login_submit(request: Request, token: str = Form(...)):
         cfg, root, audit, _store = _ctx()
+        client_ip = request.client.host if request.client else "unknown"
+        now_ts = time.time()
+        recent_failures = [ts for ts in failed_logins[client_ip] if now_ts - ts < 60.0]
+        failed_logins[client_ip] = recent_failures
+        if len(recent_failures) >= 5:
+            audit.append(
+                event_type="dashboard_login_rate_limited",
+                actor=f"ip:{client_ip}",
+                outcome="deny",
+                repository=cfg.project.name,
+                policy_version=cfg.policy.version,
+                data_classification=cfg.project.data_classification.value,
+                details={"reason": "Too many failed login attempts"},
+            )
+            return HTMLResponse(
+                await login_page(err="Too many failed attempts. Please wait 60 seconds."),
+                status_code=429,
+            )
+
         expected = _resolve_dashboard_token(cfg, root, override_token=auth_token)
         if not hmac.compare_digest(token.strip(), expected):
+            failed_logins[client_ip].append(now_ts)
             audit.append(
                 event_type="dashboard_login_failed",
-                actor="human:unknown",
+                actor=f"ip:{client_ip}",
                 outcome="deny",
                 repository=cfg.project.name,
                 policy_version=cfg.policy.version,
@@ -332,6 +372,8 @@ def create_dashboard_app(
                 await login_page(err="Invalid access token."),
                 status_code=401,
             )
+
+        failed_logins.pop(client_ip, None)
 
         expires_epoch = int(time.time()) + (cfg.dashboard.session_ttl_minutes * 60)
         cookie_val = _sign_session_cookie(expected, expires_epoch)
@@ -1332,7 +1374,13 @@ self.addEventListener('fetch', (event) => {
             "AGNES_API_KEY",
         }
         for var in allowed_vars:
-            val = str(form.get(f"secret_{var}", "")).strip()
+            raw_val = str(form.get(f"secret_{var}", ""))
+            if "\n" in raw_val or "\r" in raw_val:
+                return RedirectResponse(
+                    url=f"/config?err={quote('API keys must not contain newline characters.')}",
+                    status_code=303,
+                )
+            val = raw_val.strip()
             if val:
                 os.environ[var] = val
                 updated_vars[var] = val

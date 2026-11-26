@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import hmac
 import json
@@ -109,26 +110,32 @@ class AuditChain:
     ) -> AuditEntry:
         """Append a new hash-chained entry to the audit log."""
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        prev_hash = self._read_tail_hash()
-        entry = AuditEntry(
-            event_type=event_type,
-            actor=actor,
-            outcome=outcome,
-            session_id=session_id,
-            task_id=task_id,
-            repository=repository,
-            branch=branch,
-            model=model,
-            risk_tier=risk_tier,
-            policy_version=policy_version,
-            data_classification=data_classification,
-            details=details or {},
-            prev_hash=prev_hash,
-        )
-        entry.entry_hash = entry.compute_hash()
-        with self.log_path.open("a", encoding="utf-8") as fh:
-            fh.write(entry.model_dump_json() + "\n")
-        return entry
+        lock_path = self.log_path.with_suffix(".lock")
+        with lock_path.open("a+", encoding="utf-8") as lock_fh:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+            try:
+                prev_hash = self._read_tail_hash()
+                entry = AuditEntry(
+                    event_type=event_type,
+                    actor=actor,
+                    outcome=outcome,
+                    session_id=session_id,
+                    task_id=task_id,
+                    repository=repository,
+                    branch=branch,
+                    model=model,
+                    risk_tier=risk_tier,
+                    policy_version=policy_version,
+                    data_classification=data_classification,
+                    details=details or {},
+                    prev_hash=prev_hash,
+                )
+                entry.entry_hash = entry.compute_hash()
+                with self.log_path.open("a", encoding="utf-8") as fh:
+                    fh.write(entry.model_dump_json() + "\n")
+                return entry
+            finally:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
 
     def read_all(self) -> list[AuditEntry]:
         """Read all audit entries from disk."""
